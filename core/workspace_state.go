@@ -2,16 +2,18 @@ package core
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // workspaceState holds the runtime state for a single workspace.
 type workspaceState struct {
-	mu           sync.Mutex
-	workspace    string
-	sessions     *SessionManager
-	agent        Agent
-	lastActivity time.Time
+	mu               sync.Mutex
+	workspace        string
+	sessions         *SessionManager
+	agent            Agent
+	lastActivity     time.Time
+	hasConnectedOnce atomic.Bool // first connection after (re)creation uses --continue
 }
 
 func newWorkspaceState(workspace string) *workspaceState {

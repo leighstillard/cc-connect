@@ -1212,7 +1212,16 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if agent != e.agent {
 		agentOverride = agent
 	}
-	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, agentOverride)
+
+	// Per-workspace connectedOnce flag so that idle-reaped workspaces
+	// re-use --continue on their first reconnection.
+	var wsConnectedOnce *atomic.Bool
+	if workspaceDir != "" {
+		if ws := e.workspacePool.Get(workspaceDir); ws != nil {
+			wsConnectedOnce = &ws.hasConnectedOnce
+		}
+	}
+	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, agentOverride, wsConnectedOnce)
 
 	// Set workspaceDir on the state for idle reaper identification
 	if workspaceDir != "" {
@@ -1266,7 +1275,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			e.cleanupInteractiveState(interactiveKey, state)
 			e.send(p, msg.ReplyCtx, e.i18n.T(MsgSessionRestarting))
 
-			state = e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, agentOverride)
+			state = e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, agentOverride, wsConnectedOnce)
 			if workspaceDir != "" {
 				state.mu.Lock()
 				state.workspaceDir = workspaceDir
@@ -1344,13 +1353,14 @@ func (e *Engine) getOrCreateWorkspaceAgent(workspace string) (Agent, *SessionMan
 }
 
 func (e *Engine) getOrCreateInteractiveState(sessionKey string, p Platform, replyCtx any, session *Session) *interactiveState {
-	return e.getOrCreateInteractiveStateWith(sessionKey, p, replyCtx, session, nil)
+	return e.getOrCreateInteractiveStateWith(sessionKey, p, replyCtx, session, nil, nil)
 }
 
 // getOrCreateInteractiveStateWith is like getOrCreateInteractiveState but accepts
 // an optional agent override for multi-workspace mode. When agentOverride is non-nil
-// it is used instead of e.agent to start the session.
-func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, agentOverride Agent) *interactiveState {
+// it is used instead of e.agent to start the session. When connectedOnce is non-nil
+// it is used instead of the engine-level hasConnectedOnce flag (for per-workspace tracking).
+func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, agentOverride Agent, connectedOnce *atomic.Bool) *interactiveState {
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 
@@ -1416,11 +1426,15 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		return state
 	}
 
-	// On first connection after engine startup, use --continue to pick up
-	// the most recent CLI session (bridges direct CLI and cc-connect usage).
+	// On first connection after creation (engine startup or workspace re-creation
+	// after idle reap), use --continue to pick up the most recent CLI session.
 	// Subsequent connections respect the stored session ID (or "" for fresh).
 	startSessionID := session.GetAgentSessionID()
-	if !e.hasConnectedOnce.Swap(true) {
+	once := &e.hasConnectedOnce
+	if connectedOnce != nil {
+		once = connectedOnce
+	}
+	if !once.Swap(true) {
 		startSessionID = ContinueSession
 	}
 
