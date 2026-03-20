@@ -56,9 +56,11 @@ func newClaudeSession(ctx context.Context, workDir, model, sessionID, mode strin
 	case "":
 		// Truly fresh session — no resume, no continue.
 	case core.ContinueSession:
-		args = append(args, "--continue")
+		// Fork so that the Slack/platform session gets its own independent
+		// context branch and never interleaves with an active CLI session.
+		args = append(args, "--continue", "--fork-session")
 	default:
-		args = append(args, "--resume", sessionID)
+		args = append(args, "--resume", sessionID, "--fork-session")
 	}
 	if model != "" {
 		args = append(args, "--model", model)
