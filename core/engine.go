@@ -146,6 +146,7 @@ type Engine struct {
 	providerSaveFunc       func(providerName string) error
 	providerAddSaveFunc    func(p ProviderConfig) error
 	providerRemoveSaveFunc func(name string) error
+	providerModelSaveFunc  func(providerName, model string) error
 
 	ttsSaveFunc func(mode string) error
 
@@ -178,6 +179,14 @@ type Engine struct {
 	streamPreview    StreamPreviewCfg
 	relayManager     *RelayManager
 	eventIdleTimeout time.Duration
+	dirHistory       *DirHistory
+	baseWorkDir      string
+	projectState     *ProjectStateStore
+
+	// Auto-compress settings
+	autoCompressEnabled   bool
+	autoCompressMaxTokens int
+	autoCompressMinGap    time.Duration
 
 	// Multi-workspace mode
 	multiWorkspace    bool
@@ -194,7 +203,10 @@ type Engine struct {
 	quietMu sync.RWMutex
 	quiet   bool // when true, suppress thinking and tool progress messages globally
 
-	hasConnectedOnce atomic.Bool // first connection uses --continue
+	hasConnectedOnce    atomic.Bool // first connection uses --continue to bridge CLI usage
+	platformLifecycleMu sync.Mutex
+	platformReady       map[Platform]bool
+	stopping            bool
 }
 
 // workspaceInitFlow tracks a channel that is being onboarded to a workspace.
@@ -222,18 +234,20 @@ type queuedMessage struct {
 
 // interactiveState tracks a running interactive agent session and its permission state.
 type interactiveState struct {
-	agentSession    AgentSession
-	platform        Platform
-	replyCtx        any
-	workspaceDir    string
-	mu              sync.Mutex
-	pending         *pendingPermission
-	pendingMessages []queuedMessage // messages queued while session was busy
-	approveAll      bool            // when true, auto-approve all permission requests for this session
-	quiet           bool            // when true, suppress thinking and tool progress for this session
-	fromVoice       bool            // true if current turn originated from voice transcription
-	sideText        string
-	deleteMode      *deleteModeState
+	agentSession           AgentSession
+	platform               Platform
+	replyCtx               any
+	workspaceDir           string
+	mu                     sync.Mutex
+	pending                *pendingPermission
+	pendingMessages        []queuedMessage // messages queued while session was busy
+	approveAll             bool            // when true, auto-approve all permission requests for this session
+	quiet                  bool            // when true, suppress thinking and tool progress for this session
+	fromVoice              bool            // true if current turn originated from voice transcription
+	sideText               string
+	deleteMode             *deleteModeState
+	lastAutoCompressAt     time.Time
+	lastAutoCompressTokens int
 }
 
 type deleteModeState struct {
@@ -278,6 +292,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		skills:                NewSkillRegistry(),
 		aliases:               make(map[string]string),
 		interactiveStates:     make(map[string]*interactiveState),
+		platformReady:         make(map[Platform]bool),
 		startedAt:             time.Now(),
 		streamPreview:         DefaultStreamPreviewCfg(),
 		eventIdleTimeout:      defaultEventIdleTimeout,
@@ -361,6 +376,38 @@ func (e *Engine) SetDefaultQuiet(q bool) {
 	e.defaultQuiet = q
 }
 
+// estimateTokens provides a rough token estimate for a set of history entries.
+func estimateTokens(entries []HistoryEntry) int {
+	return estimateTokensWithPendingAssistant(entries, "")
+}
+
+// estimateTokensWithPendingAssistant is like estimateTokens but includes an assistant
+// message not yet written to history (used at EventResult before AddHistory).
+func estimateTokensWithPendingAssistant(entries []HistoryEntry, pendingAssistant string) int {
+	// Heuristic: ~1 token per 4 characters in mixed English/Chinese.
+	count := 0
+	for _, h := range entries {
+		count += len([]rune(h.Content))
+	}
+	if pendingAssistant != "" {
+		count += len([]rune(pendingAssistant))
+	}
+	if count == 0 {
+		return 0
+	}
+	return (count + 3) / 4
+}
+
+// SetAutoCompressConfig configures automatic context compression.
+func (e *Engine) SetAutoCompressConfig(enabled bool, maxTokens int, minGap time.Duration) {
+	e.autoCompressEnabled = enabled
+	e.autoCompressMaxTokens = maxTokens
+	if minGap <= 0 {
+		minGap = 30 * time.Minute
+	}
+	e.autoCompressMinGap = minGap
+}
+
 // SetInjectSender controls whether sender identity (platform and user ID) is
 // prepended to each message before forwarding it to the agent. When enabled,
 // the agent receives a preamble line like:
@@ -392,6 +439,10 @@ func (e *Engine) SetProviderAddSaveFunc(fn func(ProviderConfig) error) {
 
 func (e *Engine) SetProviderRemoveSaveFunc(fn func(string) error) {
 	e.providerRemoveSaveFunc = fn
+}
+
+func (e *Engine) SetProviderModelSaveFunc(fn func(providerName, model string) error) {
+	e.providerModelSaveFunc = fn
 }
 
 // AddPlatform appends a platform to the engine after construction.
@@ -626,6 +677,18 @@ func (e *Engine) RelayManager() *RelayManager {
 	return e.relayManager
 }
 
+func (e *Engine) SetDirHistory(dh *DirHistory) {
+	e.dirHistory = dh
+}
+
+func (e *Engine) SetBaseWorkDir(dir string) {
+	e.baseWorkDir = dir
+}
+
+func (e *Engine) SetProjectStateStore(store *ProjectStateStore) {
+	e.projectState = store
+}
+
 // RemoveCommand removes a custom command by name. Returns false if not found.
 func (e *Engine) RemoveCommand(name string) bool {
 	return e.commands.Remove(name)
@@ -717,6 +780,16 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		ReplyCtx:   replyCtx,
 	}
 
+	if job.UsesNewSessionPerRun() {
+		session := e.sessions.NewSideSession(sessionKey, "cron-"+job.ID)
+		if !session.TryLock() {
+			return fmt.Errorf("session %q is busy", sessionKey)
+		}
+		iKey := fmt.Sprintf("%s#cron:%s", sessionKey, session.ID)
+		e.processInteractiveMessageWith(effectivePlatform, msg, session, e.agent, e.sessions, iKey, "", sessionKey)
+		return nil
+	}
+
 	session := e.sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
 		return fmt.Errorf("session %q is busy", sessionKey)
@@ -738,7 +811,14 @@ func (e *Engine) executeCronShell(p Platform, replyCtx any, job *CronJob) error 
 		workDir, _ = os.Getwd()
 	}
 
-	ctx, cancel := context.WithTimeout(e.ctx, cronJobTimeout)
+	timeout := job.ExecutionTimeout()
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(e.ctx, timeout)
+	} else {
+		ctx, cancel = context.WithCancel(e.ctx)
+	}
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", job.Exec)
@@ -820,33 +900,35 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 
 func (e *Engine) Start() error {
 	var startErrs []error
+	readyCount := 0
+	pendingCount := 0
 	for _, p := range e.platforms {
+		_, isAsync := p.(AsyncRecoverablePlatform)
+		if async, ok := p.(AsyncRecoverablePlatform); ok {
+			async.SetLifecycleHandler(e)
+		}
 		if err := p.Start(e.handleMessage); err != nil {
 			slog.Warn("platform start failed", "project", e.name, "platform", p.Name(), "error", err)
 			startErrs = append(startErrs, fmt.Errorf("[%s] start platform %s: %w", e.name, p.Name(), err))
 			continue
 		}
-		slog.Info("platform started", "project", e.name, "platform", p.Name())
-
-		// Register commands on platforms that support it (e.g. Telegram setMyCommands)
-		if registrar, ok := p.(CommandRegistrar); ok {
-			commands := e.GetAllCommands()
-			if err := registrar.RegisterCommands(commands); err != nil {
-				slog.Error("platform command registration failed", "project", e.name, "platform", p.Name(), "error", err)
-			} else {
-				slog.Debug("platform commands registered", "project", e.name, "platform", p.Name(), "count", len(commands))
-			}
+		if isAsync {
+			pendingCount++
+			slog.Info("platform recovery loop started", "project", e.name, "platform", p.Name())
+			continue
 		}
-
-		if nav, ok := p.(CardNavigable); ok {
-			nav.SetCardNavigationHandler(e.handleCardNav)
-		}
+		e.onPlatformReady(p)
+		readyCount++
 	}
 
 	// Log summary
-	startedCount := len(e.platforms) - len(startErrs)
-	if len(startErrs) > 0 {
-		slog.Warn("engine started with some failures", "project", e.name, "agent", e.agent.Name(), "started", startedCount, "failed", len(startErrs))
+	if len(startErrs) > 0 || pendingCount > 0 {
+		slog.Warn("engine started with partial readiness",
+			"project", e.name,
+			"agent", e.agent.Name(),
+			"ready", readyCount,
+			"pending", pendingCount,
+			"failed", len(startErrs))
 	} else {
 		slog.Info("engine started", "project", e.name, "agent", e.agent.Name(), "platforms", len(e.platforms))
 	}
@@ -859,16 +941,20 @@ func (e *Engine) Start() error {
 }
 
 func (e *Engine) Stop() error {
-	// Stop platforms first to prevent new incoming messages
+	e.platformLifecycleMu.Lock()
+	e.stopping = true
+	e.platformLifecycleMu.Unlock()
+
+	// Cancel first so late lifecycle callbacks observe shutdown immediately.
+	e.cancel()
+
+	// Stop platforms after cancellation so they can unwind against the closed context.
 	var errs []error
 	for _, p := range e.platforms {
 		if err := p.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("stop platform %s: %w", p.Name(), err))
 		}
 	}
-
-	// Now cancel context and clean up sessions
-	e.cancel()
 
 	e.interactiveMu.Lock()
 	states := make(map[string]*interactiveState, len(e.interactiveStates))
@@ -901,6 +987,71 @@ func (e *Engine) Stop() error {
 		return fmt.Errorf("engine stop errors: %v", errs)
 	}
 	return nil
+}
+
+// OnPlatformReady marks an async platform as ready and initializes platform-level
+// capabilities once per ready cycle.
+func (e *Engine) OnPlatformReady(p Platform) {
+	e.onPlatformReady(p)
+}
+
+// OnPlatformUnavailable marks an async platform as unavailable.
+func (e *Engine) OnPlatformUnavailable(p Platform, err error) {
+	if !e.markPlatformUnavailable(p) {
+		return
+	}
+	slog.Warn("platform unavailable", "project", e.name, "platform", p.Name(), "error", err)
+}
+
+func (e *Engine) onPlatformReady(p Platform) {
+	if !e.markPlatformReady(p) {
+		return
+	}
+	slog.Info("platform ready", "project", e.name, "platform", p.Name())
+	e.initPlatformCapabilities(p)
+}
+
+func (e *Engine) markPlatformReady(p Platform) bool {
+	e.platformLifecycleMu.Lock()
+	defer e.platformLifecycleMu.Unlock()
+
+	if e.stopping || e.ctx.Err() != nil {
+		return false
+	}
+	if e.platformReady[p] {
+		return false
+	}
+	e.platformReady[p] = true
+	return true
+}
+
+func (e *Engine) markPlatformUnavailable(p Platform) bool {
+	e.platformLifecycleMu.Lock()
+	defer e.platformLifecycleMu.Unlock()
+
+	if e.stopping || e.ctx.Err() != nil {
+		return false
+	}
+	if !e.platformReady[p] {
+		return false
+	}
+	e.platformReady[p] = false
+	return true
+}
+
+func (e *Engine) initPlatformCapabilities(p Platform) {
+	if registrar, ok := p.(CommandRegistrar); ok {
+		commands := e.GetAllCommands()
+		if err := registrar.RegisterCommands(commands); err != nil {
+			slog.Error("platform command registration failed", "project", e.name, "platform", p.Name(), "error", err)
+		} else {
+			slog.Debug("platform commands registered", "project", e.name, "platform", p.Name(), "count", len(commands))
+		}
+	}
+
+	if nav, ok := p.(CardNavigable); ok {
+		nav.SetCardNavigationHandler(e.handleCardNav)
+	}
 }
 
 // matchBannedWord returns the first banned word found in content, or "".
@@ -1023,7 +1174,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		}
 		if workspace == "" {
 			// No workspace — handle init flow (unless it's a /workspace command)
-			if !strings.HasPrefix(content, "workspace") && !strings.HasPrefix(content, "/workspace") && !strings.HasPrefix(content, "ws ") {
+			if !strings.HasPrefix(content, "/workspace") && !strings.HasPrefix(content, "/ws ") {
 				if e.handleWorkspaceInitFlow(p, msg, channelID, channelName) {
 					return
 				}
@@ -1122,7 +1273,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		"session", session.ID,
 	)
 
-	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace)
+	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, "")
 }
 
 // queueMessageForBusySession queues a message for later delivery when the
@@ -1444,13 +1595,14 @@ func isDenyResponse(s string) bool {
 // ──────────────────────────────────────────────────────────────
 
 func (e *Engine) processInteractiveMessage(p Platform, msg *Message, session *Session) {
-	e.processInteractiveMessageWith(p, msg, session, e.agent, e.sessions, msg.SessionKey, "")
+	e.processInteractiveMessageWith(p, msg, session, e.agent, e.sessions, msg.SessionKey, "", "")
 }
 
 // processInteractiveMessageWith is the core interactive processing loop.
 // It accepts an explicit agent, interactiveKey (for the interactiveStates map),
 // and workspaceDir so that multi-workspace mode can route to per-workspace agents.
-func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string) {
+// ccSessionKey, when non-empty, is used for CC_SESSION_KEY in the agent env; otherwise interactiveKey is used.
+func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session *Session, agent Agent, sessions *SessionManager, interactiveKey string, workspaceDir string, ccSessionKey string) {
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
 	// between "queue is empty" and "session unlocked". A deferred fallback
@@ -1476,7 +1628,6 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	if agent != e.agent {
 		agentOverride = agent
 	}
-
 	// Per-workspace connectedOnce flag so that idle-reaped workspaces
 	// re-use --continue on their first reconnection.
 	var wsConnectedOnce *atomic.Bool
@@ -1485,7 +1636,8 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			wsConnectedOnce = &ws.hasConnectedOnce
 		}
 	}
-	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, wsConnectedOnce)
+	consumeBridge := messageConsumesFirstContinueBridge(msg)
+	state := e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, ccSessionKey, consumeBridge, wsConnectedOnce)
 
 	// Set workspaceDir on the state for idle reaper identification
 	if workspaceDir != "" {
@@ -1546,7 +1698,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 			e.cleanupInteractiveState(interactiveKey, state)
 			e.send(p, msg.ReplyCtx, e.i18n.T(MsgSessionRestarting))
 
-			state = e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, wsConnectedOnce)
+			state = e.getOrCreateInteractiveStateWith(interactiveKey, p, msg.ReplyCtx, session, sessions, agentOverride, ccSessionKey, consumeBridge, wsConnectedOnce)
 			if workspaceDir != "" {
 				state.mu.Lock()
 				state.workspaceDir = workspaceDir
@@ -1643,11 +1795,30 @@ func (e *Engine) getOrCreateWorkspaceAgent(workspace string) (Agent, *SessionMan
 	return agent, sessions, nil
 }
 
+// messageConsumesFirstContinueBridge reports whether this message may trigger the
+// one-time --continue bridge to the latest CLI session. Synthetic injectors (cron,
+// heartbeat) must not flip hasConnectedOnce so a real user's first message still
+// receives the bridge if nothing else has connected yet.
+func messageConsumesFirstContinueBridge(msg *Message) bool {
+	if msg == nil {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(msg.UserID)) {
+	case "cron", "heartbeat":
+		return false
+	default:
+		return true
+	}
+}
+
 // getOrCreateInteractiveStateWith accepts an optional agent override for multi-workspace mode.
 // When agentOverride is non-nil it is used instead of e.agent to start the session.
-// When connectedOnce is non-nil it is used instead of the engine-level hasConnectedOnce flag
+// ccSessionKey, when non-empty, is used for CC_SESSION_KEY env injection; otherwise sessionKey is used.
+// consumeFirstUserContinueBridge controls whether this start may use the global
+// one-time ContinueSession bridge (see messageConsumesFirstContinueBridge).
+// connectedOnce, when non-nil, is used instead of the engine-level hasConnectedOnce flag
 // (for per-workspace tracking after idle reap).
-func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, sessions *SessionManager, agentOverride Agent, connectedOnce *atomic.Bool) *interactiveState {
+func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, sessions *SessionManager, agentOverride Agent, ccSessionKey string, consumeFirstUserContinueBridge bool, connectedOnce *atomic.Bool) *interactiveState {
 	e.interactiveMu.Lock()
 	defer e.interactiveMu.Unlock()
 
@@ -1688,11 +1859,16 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		agent = agentOverride
 	}
 
+	ccKey := sessionKey
+	if ccSessionKey != "" {
+		ccKey = ccSessionKey
+	}
+
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
 	if inj, ok := agent.(SessionEnvInjector); ok {
 		envVars := []string{
 			"CC_PROJECT=" + e.name,
-			"CC_SESSION_KEY=" + sessionKey,
+			"CC_SESSION_KEY=" + ccKey,
 		}
 		if exePath, err := os.Executable(); err == nil {
 			binDir := filepath.Dir(exePath)
@@ -1724,7 +1900,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		return state
 	}
 
-	// On first connection after creation (engine startup or workspace re-creation
+	// On first real-user connection after engine startup (or workspace re-creation
 	// after idle reap), use --continue to pick up the most recent CLI session.
 	// Subsequent connections respect the stored session ID (or "" for fresh).
 	startSessionID := session.GetAgentSessionID()
@@ -1732,10 +1908,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	if connectedOnce != nil {
 		once = connectedOnce
 	}
-	if !once.Swap(true) {
+	if consumeFirstUserContinueBridge && !once.Swap(true) {
 		startSessionID = ContinueSession
 	}
 
+	isResume := startSessionID != ""
 	startAt := time.Now()
 	agentSession, err := agent.StartSession(e.ctx, startSessionID)
 	startElapsed := time.Since(startAt)
@@ -1765,7 +1942,11 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 
 	if newID := agentSession.CurrentSessionID(); newID != "" {
-		if session.CompareAndSetAgentSessionID(newID, agent.Name()) {
+		if session.AgentSessionID == ContinueSession {
+			// Sentinel was persisted (e.g. after restart). Replace with real ID and save.
+			session.SetAgentSessionID(newID, agent.Name())
+			sessions.Save()
+		} else if session.CompareAndSetAgentSessionID(newID, agent.Name()) {
 			sessions.Save()
 		}
 	}
@@ -1778,11 +1959,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	}
 	e.interactiveStates[sessionKey] = state
 
-	slog.Info("session spawned",
-		"session_key", sessionKey,
-		"agent_session", agentSession.CurrentSessionID(),
-		"is_resume", session.GetAgentSessionID() != "",
-		"elapsed", startElapsed)
+	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
 	return state
 }
 
@@ -1836,6 +2013,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 	toolCount := 0
 	waitStart := time.Now()
 	firstEventLogged := false
+	triggerAutoCompress := false
 
 	// stopTyping tracks the current turn's typing indicator so it can be
 	// stopped when a queued message starts a new turn.
@@ -2096,6 +2274,22 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			cleanResponse := ctxSelfReportRe.ReplaceAllString(fullResponse, "")
 			cleanResponse = strings.TrimRight(cleanResponse, "\n ")
 
+			// Evaluate auto-compress trigger (token estimate on user+assistant text,
+			// including this turn's assistant reply before it is appended to history).
+			if e.autoCompressEnabled && e.autoCompressMaxTokens > 0 {
+				estimate := estimateTokensWithPendingAssistant(session.GetHistory(0), cleanResponse)
+				now := time.Now()
+				state.mu.Lock()
+				last := state.lastAutoCompressAt
+				state.mu.Unlock()
+				if estimate >= e.autoCompressMaxTokens && (last.IsZero() || now.Sub(last) >= e.autoCompressMinGap) {
+					triggerAutoCompress = true
+					state.mu.Lock()
+					state.lastAutoCompressTokens = estimate
+					state.mu.Unlock()
+				}
+			}
+
 			session.AddHistory("assistant", cleanResponse)
 			sessions.Save()
 
@@ -2170,6 +2364,18 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 				}
 			} else {
 				slog.Debug("tts: not enabled", "tts_nil", e.tts == nil, "enabled", e.tts != nil && e.tts.Enabled, "tts_obj_nil", e.tts == nil || e.tts.TTS == nil)
+			}
+
+			// Auto-compress after finishing a turn, before sending any queued messages.
+			if triggerAutoCompress {
+				state.mu.Lock()
+				state.lastAutoCompressAt = time.Now()
+				state.mu.Unlock()
+				slog.Info("auto-compress: triggering", "session", sessionKey)
+
+				// Run compress inline while the session is still locked.
+				e.runCompress(state, session, sessions, sessionKey, state.platform, state.replyCtx, true)
+				return
 			}
 
 			// Check for queued messages — if present, continue the event loop
@@ -3042,25 +3248,111 @@ func (e *Engine) cmdDir(p Platform, msg *Message, args []string) {
 		return
 	}
 
+	currentDir := switcher.GetWorkDir()
+
+	// No args: show current dir + history
 	if len(args) == 0 {
-		e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgDirCurrent, switcher.GetWorkDir()))
+		var sb strings.Builder
+		sb.WriteString(e.i18n.Tf(MsgDirCurrent, currentDir))
+
+		if e.dirHistory != nil {
+			history := e.dirHistory.List(e.name)
+			if len(history) > 0 {
+				sb.WriteString("\n\n")
+				sb.WriteString(e.i18n.T(MsgDirHistoryTitle))
+				for i, dir := range history {
+					marker := "◻"
+					if dir == currentDir {
+						marker = "▶"
+					}
+					sb.WriteString(fmt.Sprintf("\n  %s %d. %s", marker, i+1, dir))
+				}
+				sb.WriteString("\n\n")
+				sb.WriteString(e.i18n.T(MsgDirHistoryHint))
+			}
+		}
+		e.reply(p, msg.ReplyCtx, sb.String())
 		return
 	}
+
 	if len(args) == 1 {
 		switch strings.ToLower(strings.TrimSpace(args[0])) {
 		case "help", "-h", "--help":
 			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgDirUsage))
 			return
+		case "reset":
+			baseDir := strings.TrimSpace(e.baseWorkDir)
+			if baseDir == "" {
+				baseDir = currentDir
+			}
+			if baseDir == "" {
+				baseDir, _ = os.Getwd()
+			}
+			if absDir, err := filepath.Abs(baseDir); err == nil {
+				baseDir = absDir
+			}
+
+			switcher.SetWorkDir(baseDir)
+			e.cleanupInteractiveState(interactiveKey)
+
+			s := sessions.GetOrCreateActive(msg.SessionKey)
+			s.SetAgentSessionID("", "")
+			s.ClearHistory()
+			sessions.Save()
+
+			if e.projectState != nil {
+				e.projectState.ClearWorkDirOverride()
+				e.projectState.Save()
+			}
+			if e.dirHistory != nil {
+				e.dirHistory.Add(e.name, baseDir)
+			}
+
+			e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgDirReset, baseDir))
+			return
 		}
 	}
 
-	newDir := filepath.Clean(strings.Join(args, " "))
-	if !filepath.IsAbs(newDir) {
-		baseDir := switcher.GetWorkDir()
-		if baseDir == "" {
-			baseDir, _ = os.Getwd()
+	arg := strings.Join(args, " ")
+	var newDir string
+
+	// Check if argument is a number (history index)
+	if idx, err := strconv.Atoi(strings.TrimSpace(arg)); err == nil && idx > 0 {
+		if e.dirHistory != nil {
+			newDir = e.dirHistory.Get(e.name, idx)
+			if newDir == "" {
+				e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgDirInvalidIndex, idx))
+				return
+			}
+		} else {
+			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgDirNoHistory))
+			return
 		}
-		newDir = filepath.Join(baseDir, newDir)
+	} else if arg == "-" {
+		// Jump to previous directory
+		if e.dirHistory != nil {
+			newDir = e.dirHistory.Previous(e.name)
+			if newDir == "" {
+				e.reply(p, msg.ReplyCtx, e.i18n.T(MsgDirNoPrevious))
+				return
+			}
+		} else {
+			e.reply(p, msg.ReplyCtx, e.i18n.T(MsgDirNoHistory))
+			return
+		}
+	} else {
+		// Normal path
+		newDir = filepath.Clean(arg)
+		if !filepath.IsAbs(newDir) {
+			baseDir := currentDir
+			if baseDir == "" {
+				baseDir, _ = os.Getwd()
+			}
+			newDir = filepath.Join(baseDir, newDir)
+		}
+	}
+	if absDir, err := filepath.Abs(newDir); err == nil {
+		newDir = absDir
 	}
 
 	info, err := os.Stat(newDir)
@@ -3076,6 +3368,15 @@ func (e *Engine) cmdDir(p Platform, msg *Message, args []string) {
 	s.SetAgentSessionID("", "")
 	s.ClearHistory()
 	sessions.Save()
+
+	// Add to history
+	if e.dirHistory != nil {
+		e.dirHistory.Add(e.name, newDir)
+	}
+	if e.projectState != nil {
+		e.projectState.SetWorkDirOverride(newDir)
+		e.projectState.Save()
+	}
 
 	e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgDirChanged, newDir))
 }
@@ -4192,7 +4493,7 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 				if m.Name == current {
 					label = "▶ " + label
 				}
-				row = append(row, ButtonOption{Text: label, Data: fmt.Sprintf("cmd:/model %d", i+1)})
+				row = append(row, ButtonOption{Text: label, Data: fmt.Sprintf("cmd:/model switch %d", i+1)})
 				if len(row) >= 3 {
 					buttons = append(buttons, row)
 					row = nil
@@ -4210,18 +4511,24 @@ func (e *Engine) cmdModel(p Platform, msg *Message, args []string) {
 		return
 	}
 
+	targetInput, ok := parseModelSwitchArgs(args)
+	if !ok {
+		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgModelUsage))
+		return
+	}
+
 	fetchCtx, cancel := context.WithTimeout(e.ctx, 10*time.Second)
 	defer cancel()
 	models := switcher.AvailableModels(fetchCtx)
 
-	target := args[0]
+	target := targetInput
 	if idx, err := strconv.Atoi(target); err == nil && idx >= 1 && idx <= len(models) {
 		target = models[idx-1].Name
 	} else {
 		target = resolveModelAlias(models, target)
 	}
 
-	switcher.SetModel(target)
+	target = e.switchModel(target)
 	e.cleanupInteractiveState(e.interactiveKeyForSessionKey(msg.SessionKey))
 
 	s := e.sessions.GetOrCreateActive(msg.SessionKey)
@@ -4242,6 +4549,56 @@ func resolveModelAlias(models []ModelOption, input string) string {
 		}
 	}
 	return input
+}
+
+func parseModelSwitchArgs(args []string) (string, bool) {
+	if len(args) == 0 {
+		return "", false
+	}
+	if len(args) == 1 {
+		if strings.EqualFold(strings.TrimSpace(args[0]), "switch") {
+			return "", false
+		}
+		return args[0], true
+	}
+	if strings.EqualFold(strings.TrimSpace(args[0]), "switch") && len(args) >= 2 {
+		return strings.TrimSpace(args[1]), true
+	}
+	return "", false
+}
+
+// switchModel applies a runtime model selection. When an active provider exists,
+// its configured model is updated so new sessions use the selected model instead
+// of the provider's previous fixed model.
+func (e *Engine) switchModel(target string) string {
+	switcher, ok := e.agent.(ModelSwitcher)
+	if !ok {
+		return target
+	}
+	switcher.SetModel(target)
+
+	providerSwitcher, ok := e.agent.(ProviderSwitcher)
+	if !ok {
+		return target
+	}
+	active := providerSwitcher.GetActiveProvider()
+	if active == nil {
+		return target
+	}
+
+	providers := providerSwitcher.ListProviders()
+	updated, found := SetProviderModel(providers, active.Name, target)
+	if !found {
+		return target
+	}
+	providerSwitcher.SetProviders(updated)
+	providerSwitcher.SetActiveProvider(active.Name)
+	if e.providerModelSaveFunc != nil {
+		if err := e.providerModelSaveFunc(active.Name, target); err != nil {
+			slog.Error("failed to save provider model", "provider", active.Name, "model", target, "error", err)
+		}
+	}
+	return target
 }
 
 func (e *Engine) cmdReasoning(p Platform, msg *Message, args []string) {
@@ -4537,41 +4894,55 @@ func (e *Engine) cmdCompress(p Platform, msg *Message) {
 
 	e.send(p, msg.ReplyCtx, e.i18n.T(MsgCompressing))
 
-	go func() {
-		// session.Unlock() is called inside drainQueuedMessagesAfterCompress
-		// while holding state.mu to close the race window. Deferred fallback
-		// ensures the lock is released on early-return paths.
-		compressUnlocked := false
-		defer func() {
-			if !compressUnlocked {
-				session.Unlock()
-			}
-		}()
+	go e.runCompress(state, session, sessions, iKey, p, msg.ReplyCtx, false)
+}
 
-		state.mu.Lock()
-		state.platform = p
-		state.replyCtx = msg.ReplyCtx
-		state.mu.Unlock()
-
-		drainEvents(state.agentSession.Events())
-
-		cmd := compressor.CompressCommand()
-		if err := state.agentSession.Send(cmd, nil, nil); err != nil {
-			e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgError), err))
-			if !state.agentSession.Alive() {
-				e.cleanupInteractiveState(iKey)
-			}
-			return
+// runCompress sends the agent's compress command and handles results.
+// If autoTriggered is true, suppress user-visible "compressing" and completion messages.
+func (e *Engine) runCompress(state *interactiveState, session *Session, sessions *SessionManager, iKey string, p Platform, replyCtx any, auto bool) {
+	// session.Unlock() is called inside drainQueuedMessagesAfterCompress
+	// while holding state.mu to close the race window. Deferred fallback
+	// ensures the lock is released on early-return paths.
+	compressUnlocked := false
+	defer func() {
+		if !compressUnlocked {
+			session.Unlock()
 		}
-
-		e.processCompressEvents(state, session, sessions, iKey, p, msg.ReplyCtx, &compressUnlocked)
 	}()
+
+	state.mu.Lock()
+	state.platform = p
+	state.replyCtx = replyCtx
+	state.mu.Unlock()
+
+	drainEvents(state.agentSession.Events())
+
+	compressor, ok := e.agent.(ContextCompressor)
+	if !ok || compressor.CompressCommand() == "" {
+		if !auto {
+			e.reply(p, replyCtx, e.i18n.T(MsgCompressNotSupported))
+		}
+		return
+	}
+
+	cmd := compressor.CompressCommand()
+	if err := state.agentSession.Send(cmd, nil, nil); err != nil {
+		if !auto {
+			e.reply(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgError), err))
+		}
+		if !state.agentSession.Alive() {
+			e.cleanupInteractiveState(iKey)
+		}
+		return
+	}
+
+	e.processCompressEvents(state, session, sessions, iKey, p, replyCtx, &compressUnlocked, auto)
 }
 
 // processCompressEvents drains agent events after a compress command.
 // Unlike processInteractiveEvents it does NOT record history and treats
 // an empty result as success rather than "(empty response)".
-func (e *Engine) processCompressEvents(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string, p Platform, replyCtx any, unlocked *bool) {
+func (e *Engine) processCompressEvents(state *interactiveState, session *Session, sessions *SessionManager, sessionKey string, p Platform, replyCtx any, unlocked *bool, auto bool) {
 
 	var textParts []string
 	events := state.agentSession.Events()
@@ -4592,16 +4963,20 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 		case event, ok = <-events:
 			if !ok {
 				e.cleanupInteractiveState(sessionKey, state)
-				if len(textParts) > 0 {
-					e.send(p, replyCtx, strings.Join(textParts, ""))
-				} else {
-					e.reply(p, replyCtx, e.i18n.T(MsgCompressDone))
+				if !auto {
+					if len(textParts) > 0 {
+						e.send(p, replyCtx, strings.Join(textParts, ""))
+					} else {
+						e.reply(p, replyCtx, e.i18n.T(MsgCompressDone))
+					}
 				}
 				e.notifyDroppedQueuedMessages(state, fmt.Errorf("agent process exited during compress"))
 				return
 			}
 		case <-idleCh:
-			e.send(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgError), "compress timed out"))
+			if !auto {
+				e.send(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgError), "compress timed out"))
+			}
 			e.cleanupInteractiveState(sessionKey, state)
 			e.notifyDroppedQueuedMessages(state, fmt.Errorf("compress timed out"))
 			return
@@ -4621,7 +4996,7 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 
 		switch event.Type {
 		case EventText:
-			if event.Content != "" {
+			if !auto && event.Content != "" {
 				textParts = append(textParts, event.Content)
 			}
 		case EventResult:
@@ -4629,17 +5004,19 @@ func (e *Engine) processCompressEvents(state *interactiveState, session *Session
 			if result == "" && len(textParts) > 0 {
 				result = strings.Join(textParts, "")
 			}
-			if result != "" {
-				e.send(p, replyCtx, result)
-			} else {
-				e.reply(p, replyCtx, e.i18n.T(MsgCompressDone))
+			if !auto {
+				if result != "" {
+					e.send(p, replyCtx, result)
+				} else {
+					e.reply(p, replyCtx, e.i18n.T(MsgCompressDone))
+				}
 			}
 
 			// After compress succeeds, process any queued messages instead of dropping them.
 			e.drainQueuedMessagesAfterCompress(state, session, sessions, sessionKey, unlocked)
 			return
 		case EventError:
-			if event.Error != nil {
+			if !auto && event.Error != nil {
 				e.reply(p, replyCtx, fmt.Sprintf(e.i18n.T(MsgError), event.Error))
 			}
 			// Only drop queued messages if the agent is dead; some agents
@@ -5365,13 +5742,16 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		fetchCtx, cancel := context.WithTimeout(e.ctx, 3*time.Second)
 		defer cancel()
 		models := switcher.AvailableModels(fetchCtx)
-		target := args
+		target, ok := parseModelSwitchArgs(strings.Fields(args))
+		if !ok {
+			return
+		}
 		if idx, err := strconv.Atoi(target); err == nil && idx >= 1 && idx <= len(models) {
 			target = models[idx-1].Name
 		} else {
 			target = resolveModelAlias(models, target)
 		}
-		switcher.SetModel(target)
+		e.switchModel(target)
 		interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
 		e.cleanupInteractiveState(interactiveKey)
 		s := e.sessions.GetOrCreateActive(sessionKey)
@@ -5416,6 +5796,11 @@ func (e *Engine) executeCardAction(cmd, args, sessionKey string) {
 		switcher.SetMode(strings.ToLower(args))
 		interactiveKey := e.interactiveKeyForSessionKey(sessionKey)
 		e.cleanupInteractiveState(interactiveKey)
+		// Mode change requires a new session to take effect
+		s := e.sessions.GetOrCreateActive(sessionKey)
+		s.SetAgentSessionID("", "")
+		s.ClearHistory()
+		e.sessions.Save()
 
 	case "/lang":
 		if args == "" {
@@ -5928,7 +6313,7 @@ func (e *Engine) renderModelCard() *Card {
 		} else if m.Desc != "" {
 			label += " — " + m.Desc
 		}
-		val := fmt.Sprintf("act:/model %d", i+1)
+		val := fmt.Sprintf("act:/model switch %d", i+1)
 		opts = append(opts, CardSelectOption{Text: label, Value: val})
 		if m.Name == current {
 			initVal = val

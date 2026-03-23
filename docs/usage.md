@@ -9,6 +9,7 @@ Complete guide to using cc-connect features.
 - [API Provider Management](#api-provider-management)
 - [Model Selection](#model-selection)
 - [Feishu Setup CLI](#feishu-setup-cli)
+- [Weixin (personal) Setup CLI](#weixin-personal-setup-cli)
 - [Claude Code Router Integration](#claude-code-router-integration)
 - [Voice Messages (STT)](#voice-messages-speech-to-text)
 - [Voice Reply (TTS)](#voice-reply-text-to-speech)
@@ -34,7 +35,7 @@ Each user gets an independent session with full conversation context. Manage ses
 | `/history [n]` | Show last n messages (default 10) |
 | `/usage` | Show account/model quota usage (if supported) |
 | `/provider [...]` | Manage API providers |
-| `/model [alias]` | List available models or switch by alias |
+| `/model [switch <alias>]` | List available models or switch by alias |
 | `/allow <tool>` | Pre-allow a tool (next session) |
 | `/reasoning [level]` | View or switch reasoning effort (Codex) |
 | `/mode [name]` | View or switch permission mode |
@@ -216,8 +217,9 @@ alias = "spark"
 
 ```
 /model              List available models (format: alias - model)
-/model <alias>      Switch to the model matching the alias
-/model <name>       Switch to the model by its full name
+/model switch <alias>      Switch to the model matching the alias
+/model switch <name>       Switch to the model by its full name
+/model <alias>             Legacy syntax, still supported
 ```
 
 When `models` is configured, `/model` shows exactly that list without making an API round-trip. When omitted, models are fetched from the provider API or fall back to a built-in list.
@@ -249,6 +251,26 @@ Behavior:
 - If project exists but has no `feishu/lark` platform, one is added automatically.
 - The command writes credentials (`app_id`, `app_secret`); in QR onboarding flow, Feishu usually pre-configures permissions and event subscriptions.
 - Still verify app publish status and availability scope in Feishu Open Platform.
+
+---
+
+## Weixin (personal) Setup CLI
+
+Weixin personal chat uses the **ilink bot HTTP API** (long polling + `sendMessage`, same family as OpenClaw `openclaw-weixin`). Use the CLI to scan a QR code or bind an existing Bearer token and write `config.toml`.
+
+**Full walkthrough (Chinese): [docs/weixin.md](./weixin.md).**
+
+```bash
+cc-connect weixin setup --project my-project
+cc-connect weixin bind --project my-project --token '<token>'
+cc-connect weixin new --project my-project
+```
+
+Notes:
+- `setup` without `--token` runs QR login; with `--token` behaves like bind.
+- Auto-creates the project and/or a `weixin` platform block when missing.
+- After login, send a message from WeChat once so `context_token` is cached.
+- See `cc-connect weixin help` for flags (`--api-url`, `--cdn-url`, `--route-tag`, etc.).
 
 ---
 
@@ -457,6 +479,8 @@ cc-connect cron list
 cc-connect cron del <job-id>
 ```
 
+Optional: `--session-mode new-per-run` starts a fresh agent session on each run (default is `reuse`, same as before). `--timeout-mins N` sets how long the scheduler waits per run (`0` = no limit; omit = 30 minutes).
+
 ### Natural Language (Claude Code)
 
 > "Every day at 6am, summarize GitHub trending"
@@ -554,7 +578,7 @@ mode = "default"
 provider = "anthropic"
 
 [[projects.platforms]]
-type = "feishu"  # or dingtalk, telegram, slack, discord, wecom, line, qq, qqbot
+type = "feishu"  # or dingtalk, telegram, slack, discord, wecom, weixin, line, qq, qqbot
 
 [projects.platforms.options]
 # platform-specific options

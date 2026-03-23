@@ -51,13 +51,25 @@
 
 ---
 
+## 🆕 What's New (beta)
+
+> These highlights are in **beta / pre-release** builds — install [`cc-connect@beta`](https://www.npmjs.com/package/cc-connect?activeTab=versions) or grab a [pre-release](https://github.com/chenhg5/cc-connect/releases) binary. They are **not** in the default **stable** release yet; details may change before promotion to stable.
+
+- **Personal WeChat** — Chat with your local agent from **Weixin (personal)** via ilink long-polling; QR `weixin setup`, CDN media, no public IP. *[Setup → `docs/weixin.md`](docs/weixin.md)*
+- **Auto-compress** — When the session estimate blows past your threshold, cc-connect can trim context so long threads keep working instead of silently falling over.
+- **Friendlier `--continue`** — Fork-on-continue so your bridge session doesn’t inherit a half-finished CLI terminal session by accident.
+- **Cron with boundaries** — Run jobs in a **fresh session** each time and cap **per-job timeouts** so runaway tasks don’t wedge the bot.
+- **Richer platforms** — e.g. **Discord** `@everyone` / `@here`, **Telegram** voice-style replies, **Feishu** fixes for reply threading and async dispatch.
+
+---
+
 ## ✨ Why cc-connect?
 
 ### 🤖 Universal Agent Support
 **7 AI Agents** — Claude Code, Codex, Cursor Agent, Qoder CLI, Gemini CLI, OpenCode, iFlow CLI. Use whichever fits your workflow, or all of them at once.
 
 ### 📱 Platform Flexibility
-**9 Chat Platforms** — Feishu, DingTalk, Slack, Telegram, Discord, WeChat Work, LINE, QQ, QQ Bot (Official). Most need **zero public IP**.
+**10 Chat Platforms** — Feishu, DingTalk, Slack, Telegram, Discord, WeChat Work, LINE, QQ, QQ Bot (Official), plus **Weixin (personal ilink)** for **personal WeChat**. *Personal WeChat is **beta / pre-release only*** — install [`cc-connect@beta`](https://www.npmjs.com/package/cc-connect?activeTab=versions) or a [GitHub pre-release](https://github.com/chenhg5/cc-connect/releases) binary; the default **stable** npm package does **not** ship the `weixin` platform yet. Most platforms need **zero public IP**.
 
 ### 🔄 Multi-Agent Orchestration
 **Multi-Bot Relay** — Bind multiple bots in a group chat and let them communicate with each other. Ask Claude, get insights from Gemini — all in one conversation.
@@ -117,6 +129,8 @@ npm install -g cc-connect
 npm install -g cc-connect@beta
 ```
 
+> **Personal WeChat (Weixin ilink):** only available in **beta / pre-release** builds (`cc-connect@beta` or a prerelease asset under [Releases](https://github.com/chenhg5/cc-connect/releases)). **Stable** `npm install -g cc-connect` does **not** include this platform until it graduates from beta.
+
 **Download binary from [GitHub Releases](https://github.com/chenhg5/cc-connect/releases):**
 
 ```bash
@@ -146,6 +160,9 @@ mkdir -p ~/.cc-connect
 cp config.example.toml ~/.cc-connect/config.toml
 vim ~/.cc-connect/config.toml
 ```
+
+Set `admin_from = "alice,bob"` in a project to allow those user IDs to run privileged commands such as `/dir` and `/shell`.
+When a user runs `/dir reset`, cc-connect restores the configured `work_dir` and clears the persisted override stored under `data_dir/projects/<project>.state.json`.
 
 ---
 
@@ -190,6 +207,7 @@ cc-connect update --pre     # Beta (includes pre-releases)
 | Platform | Discord | ✅ Gateway — no public IP needed |
 | Platform | LINE | ✅ Webhook — public URL required |
 | Platform | WeChat Work | ✅ WebSocket / Webhook |
+| Platform | Weixin (personal, ilink) | 🧪 **Beta / pre-release** — HTTP long polling — no public IP needed |
 | Platform | QQ (NapCat/OneBot) | ✅ WebSocket — Beta |
 | Platform | QQ Bot (Official) | ✅ WebSocket — no public IP needed |
 
@@ -205,6 +223,7 @@ cc-connect update --pre     # Beta (includes pre-releases)
 | Slack | [docs/slack.md](docs/slack.md) | Socket Mode | No |
 | Discord | [docs/discord.md](docs/discord.md) | Gateway | No |
 | WeChat Work | [docs/wecom.md](docs/wecom.md) | WebSocket / Webhook | No (WS) / Yes (Webhook) |
+| Weixin (personal) | [docs/weixin.md](docs/weixin.md) | HTTP long polling (ilink) — **beta only** | No |
 | QQ / QQ Bot | [docs/qq.md](docs/qq.md) | WebSocket | No |
 
 ---
@@ -218,6 +237,7 @@ cc-connect update --pre     # Beta (includes pre-releases)
 /list             List all sessions
 /switch <id>      Switch session
 /current          Show current session
+/dir [path|reset] Show, switch, or reset work directory
 ```
 
 ---
@@ -245,7 +265,7 @@ cc-connect update --pre     # Beta (includes pre-releases)
 
 ```
 /model                      List available models (format: alias - model)
-/model <alias>              Switch to model by alias
+/model switch <alias>       Switch to model by alias
 ```
 
 ---

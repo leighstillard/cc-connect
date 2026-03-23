@@ -39,7 +39,7 @@ type claudeSession struct {
 	alive       atomic.Bool
 }
 
-func newClaudeSession(ctx context.Context, workDir, model, sessionID, mode string, allowedTools []string, extraEnv []string, platformPrompt string) (*claudeSession, error) {
+func newClaudeSession(ctx context.Context, workDir, model, sessionID, mode string, allowedTools, disallowedTools []string, extraEnv []string, platformPrompt string) (*claudeSession, error) {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	args := []string{
@@ -56,17 +56,23 @@ func newClaudeSession(ctx context.Context, workDir, model, sessionID, mode strin
 	case "":
 		// Truly fresh session — no resume, no continue.
 	case core.ContinueSession:
-		// Fork so that the Slack/platform session gets its own independent
-		// context branch and never interleaves with an active CLI session.
+		// --continue grabs the most recent session in the workspace, which
+		// may belong to an active CLI terminal. Fork it so the platform
+		// conversation gets its own independent context branch.
 		args = append(args, "--continue", "--fork-session")
 	default:
-		args = append(args, "--resume", sessionID, "--fork-session")
+		// Resuming a known session ID — this is cc-connect's own session
+		// from a previous connection, safe to resume directly.
+		args = append(args, "--resume", sessionID)
 	}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
 	if len(allowedTools) > 0 {
 		args = append(args, "--allowedTools", strings.Join(allowedTools, ","))
+	}
+	if len(disallowedTools) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(disallowedTools, ","))
 	}
 
 	if sysPrompt := core.AgentSystemPrompt(); sysPrompt != "" {

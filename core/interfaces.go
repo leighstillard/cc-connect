@@ -70,9 +70,15 @@ When the user asks you to do something on a schedule (e.g. "每天早上6点帮�
 
 Environment variables CC_PROJECT and CC_SESSION_KEY are already set, so you do NOT need to specify --project or --session-key.
 
+Optional flags:
+  --session-mode <mode>     reuse (default) or new-per-run (fresh session each trigger)
+  --timeout-mins <n>        max wait per run in minutes (default 30, 0 = unlimited)
+  --exec <command>          run a shell command directly instead of --prompt
+
 Examples:
   cc-connect cron add --cron "0 6 * * *" --prompt "Collect GitHub trending repos and send a summary" --desc "Daily GitHub Trending"
   cc-connect cron add --cron "0 9 * * 1" --prompt "Generate a weekly project status report" --desc "Weekly Report"
+  cc-connect cron add --cron "*/2 * * * *" --exec "ipconfig" --session-mode new-per-run --desc "Every 2 min ipconfig"
 
 You can also list or delete cron jobs:
   cc-connect cron list
@@ -154,6 +160,27 @@ type CardNavigationHandler func(action string, sessionKey string) *Card
 // card navigation (updating the existing card instead of sending a new message).
 type CardNavigable interface {
 	SetCardNavigationHandler(h CardNavigationHandler)
+}
+
+// PlatformLifecycleHandler receives readiness state transitions from async
+// recoverable platforms.
+type PlatformLifecycleHandler interface {
+	OnPlatformReady(p Platform)
+	OnPlatformUnavailable(p Platform, err error)
+}
+
+// AsyncRecoverablePlatform is an optional interface for platforms that start
+// a background recovery loop and later report readiness or unavailability.
+//
+// Platforms implementing this interface may return from Start() before they are
+// actually ready to receive traffic. Callers must treat OnPlatformReady as the
+// signal that deferred platform capabilities may be initialized and the
+// platform is usable. A nil Start() return therefore means the recovery loop
+// was launched successfully, not necessarily that an initial connection was
+// established.
+type AsyncRecoverablePlatform interface {
+	Platform
+	SetLifecycleHandler(h PlatformLifecycleHandler)
 }
 
 // MessageHandler is called by platforms when a new message arrives.
