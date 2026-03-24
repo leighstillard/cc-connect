@@ -743,7 +743,22 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		}
 	}
 	if targetPlatform == nil {
-		return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
+		// In multi-workspace mode, legacy cron jobs may have a workspace-prefixed
+		// session key (e.g. "/home/user/workspace:slack:C123:U456") from before the
+		// fix that passes bare session keys. Strip the prefix and retry.
+		if e.multiWorkspace {
+			for _, p := range e.platforms {
+				if idx := strings.Index(sessionKey, ":"+p.Name()+":"); idx >= 0 {
+					sessionKey = sessionKey[idx+1:]
+					platformName = p.Name()
+					targetPlatform = p
+					break
+				}
+			}
+		}
+		if targetPlatform == nil {
+			return fmt.Errorf("platform %q not found for session %q", platformName, sessionKey)
+		}
 	}
 
 	rc, ok := targetPlatform.(ReplyContextReconstructor)
