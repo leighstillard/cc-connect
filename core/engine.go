@@ -807,6 +807,38 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 		return e.executeCronShell(effectivePlatform, replyCtx, job)
 	}
 
+	// Resolve workspace-specific agent and sessions in multi-workspace mode.
+	// Without this, cron jobs use the engine-level agent (wrong workDir) and
+	// a bare interactiveKey that doesn't match the user's prefixed key,
+	// causing responses to be lost.
+	agent := e.agent
+	sessions := e.sessions
+	interactiveKey := sessionKey
+	workspaceDir := ""
+	if e.multiWorkspace {
+		channelID := extractChannelID(sessionKey)
+		workspace, _, err := e.resolveWorkspace(targetPlatform, channelID)
+		if err != nil {
+			return fmt.Errorf("cron: workspace resolution failed for %q: %w", sessionKey, err)
+		}
+		if workspace == "" {
+			return fmt.Errorf("cron: no workspace bound for channel %q", channelID)
+		}
+		workspaceDir = workspace
+		interactiveKey = workspace + ":" + sessionKey
+
+		if ws := e.workspacePool.Get(workspace); ws != nil {
+			ws.Touch()
+		}
+
+		wsAgent, wsSessions, err := e.getOrCreateWorkspaceAgent(workspace)
+		if err != nil {
+			return fmt.Errorf("cron: failed to create workspace agent for %q: %w", workspace, err)
+		}
+		agent = wsAgent
+		sessions = wsSessions
+	}
+
 	msg := &Message{
 		SessionKey: sessionKey,
 		Platform:   platformName,
@@ -818,21 +850,21 @@ func (e *Engine) ExecuteCronJob(job *CronJob) error {
 
 	if job.UsesNewSessionPerRun() {
 		msg.SessionKey = runSessionKey
-		session := e.sessions.NewSideSession(runSessionKey, "cron-"+job.ID)
+		session := sessions.NewSideSession(runSessionKey, "cron-"+job.ID)
 		if !session.TryLock() {
 			return fmt.Errorf("session %q is busy", runSessionKey)
 		}
-		iKey := fmt.Sprintf("%s#cron:%s", runSessionKey, session.ID)
-		e.processInteractiveMessageWith(effectivePlatform, msg, session, e.agent, e.sessions, iKey, "", runSessionKey)
+		iKey := fmt.Sprintf("%s#cron:%s", interactiveKey, session.ID)
+		e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, iKey, workspaceDir, runSessionKey)
 		return nil
 	}
 
-	session := e.sessions.GetOrCreateActive(sessionKey)
+	session := sessions.GetOrCreateActive(sessionKey)
 	if !session.TryLock() {
 		return fmt.Errorf("session %q is busy", sessionKey)
 	}
 
-	e.processInteractiveMessageWith(effectivePlatform, msg, session, e.agent, e.sessions, sessionKey, "", sessionKey)
+	e.processInteractiveMessageWith(effectivePlatform, msg, session, agent, sessions, interactiveKey, workspaceDir, sessionKey)
 	return nil
 }
 

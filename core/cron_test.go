@@ -530,3 +530,73 @@ func TestCronStore_ListByProject(t *testing.T) {
 		t.Errorf("ListByProject(nonexistent) = %d jobs, want 0", len(list3))
 	}
 }
+
+// TestExecuteCronJob_MultiWorkspace_NoBinding verifies that in multi-workspace
+// mode, ExecuteCronJob returns an error when the channel has no workspace binding
+// (regression test for #302: cron responses not delivered because workspace
+// resolution was skipped entirely).
+func TestExecuteCronJob_MultiWorkspace_NoBinding(t *testing.T) {
+	p := &cronTestPlatform{name: "slack"}
+	e := NewEngine("test", &stubCronAgent{}, []Platform{p}, "", LangEnglish)
+	e.SetMultiWorkspace(t.TempDir(), "")
+
+	job := &CronJob{
+		ID:         "j1",
+		Project:    "test",
+		SessionKey: "slack:C123:U456",
+		Prompt:     "hello",
+		Enabled:    true,
+	}
+
+	err := e.ExecuteCronJob(job)
+	if err == nil {
+		t.Fatal("expected error for unbound channel, got nil")
+	}
+	if !strings.Contains(err.Error(), "no workspace bound") {
+		t.Fatalf("expected 'no workspace bound' error, got: %v", err)
+	}
+}
+
+// cronTestPlatform is a minimal platform stub that implements
+// ReplyContextReconstructor for cron tests.
+type cronTestPlatform struct {
+	name string
+	sent []string
+}
+
+func (p *cronTestPlatform) Name() string               { return p.name }
+func (p *cronTestPlatform) Start(MessageHandler) error { return nil }
+func (p *cronTestPlatform) Reply(_ context.Context, _ any, content string) error {
+	p.sent = append(p.sent, content)
+	return nil
+}
+func (p *cronTestPlatform) Send(_ context.Context, _ any, content string) error {
+	p.sent = append(p.sent, content)
+	return nil
+}
+func (p *cronTestPlatform) Stop() error { return nil }
+func (p *cronTestPlatform) ReconstructReplyCtx(sessionKey string) (any, error) {
+	return "reconstructed:" + sessionKey, nil
+}
+
+type stubCronAgent struct{}
+
+func (a *stubCronAgent) Name() string { return "stub" }
+func (a *stubCronAgent) StartSession(_ context.Context, _ string) (AgentSession, error) {
+	return &stubCronAgentSession{}, nil
+}
+func (a *stubCronAgent) ListSessions(_ context.Context) ([]AgentSessionInfo, error) {
+	return nil, nil
+}
+func (a *stubCronAgent) Stop() error { return nil }
+
+type stubCronAgentSession struct{}
+
+func (s *stubCronAgentSession) Send(_ string, _ []ImageAttachment, _ []FileAttachment) error {
+	return nil
+}
+func (s *stubCronAgentSession) RespondPermission(_ string, _ PermissionResult) error { return nil }
+func (s *stubCronAgentSession) Events() <-chan Event                                 { return make(chan Event) }
+func (s *stubCronAgentSession) CurrentSessionID() string                             { return "cron-session" }
+func (s *stubCronAgentSession) Alive() bool                                          { return true }
+func (s *stubCronAgentSession) Close() error                                         { return nil }
