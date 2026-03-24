@@ -2,6 +2,8 @@ package claudecode
 
 import (
 	"testing"
+
+	"github.com/chenhg5/cc-connect/core"
 )
 
 func TestParseUserQuestions_ValidInput(t *testing.T) {
@@ -114,6 +116,42 @@ func TestNormalizePermissionMode(t *testing.T) {
 	}
 }
 
+func TestClaudeSessionSetLiveMode(t *testing.T) {
+	cs := &claudeSession{}
+	cs.setPermissionMode("default")
+	if cs.autoApprove.Load() || cs.acceptEditsOnly.Load() || cs.dontAsk.Load() {
+		t.Fatal("expected default mode flags to be off")
+	}
+
+	if !cs.SetLiveMode("acceptEdits") {
+		t.Fatal("SetLiveMode(acceptEdits) = false, want true")
+	}
+	if !cs.acceptEditsOnly.Load() || cs.autoApprove.Load() || cs.dontAsk.Load() {
+		t.Fatal("acceptEdits flags not set correctly")
+	}
+
+	cs.SetLiveMode("bypassPermissions")
+	if !cs.autoApprove.Load() || cs.acceptEditsOnly.Load() || cs.dontAsk.Load() {
+		t.Fatal("bypassPermissions flags not set correctly")
+	}
+
+	cs.SetLiveMode("dontAsk")
+	if !cs.dontAsk.Load() || cs.autoApprove.Load() || cs.acceptEditsOnly.Load() {
+		t.Fatal("dontAsk flags not set correctly")
+	}
+}
+
+func TestIsClaudeEditTool(t *testing.T) {
+	for _, tool := range []string{"Edit", "Write", "NotebookEdit", "MultiEdit"} {
+		if !isClaudeEditTool(tool) {
+			t.Fatalf("isClaudeEditTool(%q) = false, want true", tool)
+		}
+	}
+	if isClaudeEditTool("Bash") {
+		t.Fatal("isClaudeEditTool(Bash) = true, want false")
+	}
+}
+
 func TestSummarizeInput_AskUserQuestion(t *testing.T) {
 	input := map[string]any{
 		"questions": []any{
@@ -131,3 +169,81 @@ func TestSummarizeInput_AskUserQuestion(t *testing.T) {
 		t.Error("expected non-empty summary for AskUserQuestion")
 	}
 }
+
+func TestAgent_Name(t *testing.T) {
+	a := &Agent{}
+	if got := a.Name(); got != "claudecode" {
+		t.Errorf("Name() = %q, want %q", got, "claudecode")
+	}
+}
+
+func TestAgent_CLIBinaryName(t *testing.T) {
+	a := &Agent{}
+	if got := a.CLIBinaryName(); got != "claude" {
+		t.Errorf("CLIBinaryName() = %q, want %q", got, "claude")
+	}
+}
+
+func TestAgent_CLIDisplayName(t *testing.T) {
+	a := &Agent{}
+	if got := a.CLIDisplayName(); got != "Claude" {
+		t.Errorf("CLIDisplayName() = %q, want %q", got, "Claude")
+	}
+}
+
+func TestAgent_SetWorkDir(t *testing.T) {
+	a := &Agent{}
+	a.SetWorkDir("/tmp/test")
+	if got := a.GetWorkDir(); got != "/tmp/test" {
+		t.Errorf("GetWorkDir() = %q, want %q", got, "/tmp/test")
+	}
+}
+
+func TestAgent_SetModel(t *testing.T) {
+	a := &Agent{}
+	a.SetModel("claude-sonnet-4-20250514")
+	if got := a.GetModel(); got != "claude-sonnet-4-20250514" {
+		t.Errorf("GetModel() = %q, want %q", got, "claude-sonnet-4-20250514")
+	}
+}
+
+func TestAgent_SetSessionEnv(t *testing.T) {
+	a := &Agent{}
+	a.SetSessionEnv([]string{"KEY=value"})
+	if len(a.sessionEnv) != 1 || a.sessionEnv[0] != "KEY=value" {
+		t.Errorf("sessionEnv = %v, want [KEY=value]", a.sessionEnv)
+	}
+}
+
+func TestAgent_SetPlatformPrompt(t *testing.T) {
+	a := &Agent{}
+	a.SetPlatformPrompt("You are a helpful assistant on Feishu.")
+	if a.platformPrompt != "You are a helpful assistant on Feishu." {
+		t.Errorf("platformPrompt = %q, want %q", a.platformPrompt, "You are a helpful assistant on Feishu.")
+	}
+}
+
+func TestStripXMLTags(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"<tag>content</tag>", "content"},
+		{"no tags", "no tags"},
+		{"<a>hello</a><b>world</b>", "helloworld"},
+		{"<nested><inner>text</inner></nested>", "text"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := stripXMLTags(tt.input)
+			if got != tt.expected {
+				t.Errorf("stripXMLTags(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// verify Agent implements core.Agent
+var _ core.Agent = (*Agent)(nil)

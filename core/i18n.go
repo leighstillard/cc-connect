@@ -119,80 +119,81 @@ func (i *I18n) SetLang(lang Language) {
 type MsgKey string
 
 const (
-	MsgStarting             MsgKey = "starting"
-	MsgThinking             MsgKey = "thinking"
-	MsgTool                 MsgKey = "tool"
-	MsgExecutionStopped     MsgKey = "execution_stopped"
-	MsgNoExecution          MsgKey = "no_execution"
-	MsgPreviousProcessing   MsgKey = "previous_processing"
-	MsgMessageQueued        MsgKey = "message_queued"
-	MsgNoToolsAllowed       MsgKey = "no_tools_allowed"
-	MsgCurrentTools         MsgKey = "current_tools"
-	MsgCurrentSession       MsgKey = "current_session"
-	MsgToolAuthNotSupported MsgKey = "tool_auth_not_supported"
-	MsgToolAllowFailed      MsgKey = "tool_allow_failed"
-	MsgToolAllowedNew       MsgKey = "tool_allowed_new"
+	MsgStarting                  MsgKey = "starting"
+	MsgThinking                  MsgKey = "thinking"
+	MsgTool                      MsgKey = "tool"
+	MsgToolResult                MsgKey = "tool_result"
+	MsgExecutionStopped          MsgKey = "execution_stopped"
+	MsgNoExecution               MsgKey = "no_execution"
+	MsgPreviousProcessing        MsgKey = "previous_processing"
+	MsgMessageQueued             MsgKey = "message_queued"
+	MsgNoToolsAllowed            MsgKey = "no_tools_allowed"
+	MsgCurrentTools              MsgKey = "current_tools"
+	MsgCurrentSession            MsgKey = "current_session"
+	MsgToolAuthNotSupported      MsgKey = "tool_auth_not_supported"
+	MsgToolAllowFailed           MsgKey = "tool_allow_failed"
+	MsgToolAllowedNew            MsgKey = "tool_allowed_new"
 	MsgError                     MsgKey = "error"
 	MsgFailedToStartAgentSession MsgKey = "failed_to_start_agent_session"
-	MsgFailedToDeleteSession    MsgKey = "failed_to_delete_session"
-	MsgEmptyResponse           MsgKey = "empty_response"
-	MsgPermissionPrompt     MsgKey = "permission_prompt"
-	MsgPermissionAllowed    MsgKey = "permission_allowed"
-	MsgPermissionApproveAll MsgKey = "permission_approve_all"
-	MsgPermissionDenied     MsgKey = "permission_denied_msg"
-	MsgPermissionHint       MsgKey = "permission_hint"
-	MsgQuietOn              MsgKey = "quiet_on"
-	MsgQuietOff             MsgKey = "quiet_off"
-	MsgQuietGlobalOn        MsgKey = "quiet_global_on"
-	MsgQuietGlobalOff       MsgKey = "quiet_global_off"
-	MsgModeChanged          MsgKey = "mode_changed"
-	MsgModeNotSupported     MsgKey = "mode_not_supported"
-	MsgSessionRestarting    MsgKey = "session_restarting"
-	MsgSessionNotStarted    MsgKey = "session_not_started"
-	MsgLangChanged          MsgKey = "lang_changed"
-	MsgLangInvalid          MsgKey = "lang_invalid"
-	MsgLangCurrent          MsgKey = "lang_current"
-	MsgUnknownCommand       MsgKey = "unknown_command"
-	MsgHelp                 MsgKey = "message_help" // change from "help", which is used now for builtin command help
-	MsgHelpTitle            MsgKey = "help_title"
-	MsgHelpSessionSection   MsgKey = "help_session_section"
-	MsgHelpAgentSection     MsgKey = "help_agent_section"
-	MsgHelpToolsSection     MsgKey = "help_tools_section"
-	MsgHelpSystemSection    MsgKey = "help_system_section"
-	MsgHelpTip              MsgKey = "help_tip"
-	MsgListTitle            MsgKey = "list_title"
-	MsgListTitlePaged       MsgKey = "list_title_paged"
-	MsgListEmpty            MsgKey = "list_empty"
-	MsgListMore             MsgKey = "list_more"
-	MsgListPageHint         MsgKey = "list_page_hint"
-	MsgListSwitchHint       MsgKey = "list_switch_hint"
-	MsgListError            MsgKey = "list_error"
-	MsgHistoryEmpty         MsgKey = "history_empty"
-	MsgNameUsage            MsgKey = "name_usage"
-	MsgNameSet              MsgKey = "name_set"
-	MsgNameNoSession        MsgKey = "name_no_session"
-	MsgProviderNotSupported MsgKey = "provider_not_supported"
-	MsgProviderNone         MsgKey = "provider_none"
-	MsgProviderCurrent      MsgKey = "provider_current"
-	MsgProviderListTitle    MsgKey = "provider_list_title"
-	MsgProviderListEmpty    MsgKey = "provider_list_empty"
-	MsgProviderSwitchHint   MsgKey = "provider_switch_hint"
-	MsgProviderNotFound     MsgKey = "provider_not_found"
-	MsgProviderSwitched     MsgKey = "provider_switched"
-	MsgProviderCleared      MsgKey = "provider_cleared"
-	MsgProviderAdded        MsgKey = "provider_added"
-	MsgProviderAddUsage     MsgKey = "provider_add_usage"
-	MsgProviderAddFailed    MsgKey = "provider_add_failed"
-	MsgProviderRemoved      MsgKey = "provider_removed"
-	MsgProviderRemoveFailed MsgKey = "provider_remove_failed"
+	MsgFailedToDeleteSession     MsgKey = "failed_to_delete_session"
+	MsgEmptyResponse             MsgKey = "empty_response"
+	MsgPermissionPrompt          MsgKey = "permission_prompt"
+	MsgPermissionAllowed         MsgKey = "permission_allowed"
+	MsgPermissionApproveAll      MsgKey = "permission_approve_all"
+	MsgPermissionDenied          MsgKey = "permission_denied_msg"
+	MsgPermissionHint            MsgKey = "permission_hint"
+	MsgQuietOn                   MsgKey = "quiet_on"
+	MsgQuietOff                  MsgKey = "quiet_off"
+	MsgQuietGlobalOn             MsgKey = "quiet_global_on"
+	MsgQuietGlobalOff            MsgKey = "quiet_global_off"
+	MsgModeChanged               MsgKey = "mode_changed"
+	MsgModeNotSupported          MsgKey = "mode_not_supported"
+	MsgSessionRestarting         MsgKey = "session_restarting"
+	MsgSessionNotStarted         MsgKey = "session_not_started"
+	MsgLangChanged               MsgKey = "lang_changed"
+	MsgLangInvalid               MsgKey = "lang_invalid"
+	MsgLangCurrent               MsgKey = "lang_current"
+	MsgUnknownCommand            MsgKey = "unknown_command"
+	MsgHelp                      MsgKey = "message_help" // change from "help", which is used now for builtin command help
+	MsgHelpTitle                 MsgKey = "help_title"
+	MsgHelpSessionSection        MsgKey = "help_session_section"
+	MsgHelpAgentSection          MsgKey = "help_agent_section"
+	MsgHelpToolsSection          MsgKey = "help_tools_section"
+	MsgHelpSystemSection         MsgKey = "help_system_section"
+	MsgHelpTip                   MsgKey = "help_tip"
+	MsgListTitle                 MsgKey = "list_title"
+	MsgListTitlePaged            MsgKey = "list_title_paged"
+	MsgListEmpty                 MsgKey = "list_empty"
+	MsgListMore                  MsgKey = "list_more"
+	MsgListPageHint              MsgKey = "list_page_hint"
+	MsgListSwitchHint            MsgKey = "list_switch_hint"
+	MsgListError                 MsgKey = "list_error"
+	MsgHistoryEmpty              MsgKey = "history_empty"
+	MsgNameUsage                 MsgKey = "name_usage"
+	MsgNameSet                   MsgKey = "name_set"
+	MsgNameNoSession             MsgKey = "name_no_session"
+	MsgProviderNotSupported      MsgKey = "provider_not_supported"
+	MsgProviderNone              MsgKey = "provider_none"
+	MsgProviderCurrent           MsgKey = "provider_current"
+	MsgProviderListTitle         MsgKey = "provider_list_title"
+	MsgProviderListEmpty         MsgKey = "provider_list_empty"
+	MsgProviderSwitchHint        MsgKey = "provider_switch_hint"
+	MsgProviderNotFound          MsgKey = "provider_not_found"
+	MsgProviderSwitched          MsgKey = "provider_switched"
+	MsgProviderCleared           MsgKey = "provider_cleared"
+	MsgProviderAdded             MsgKey = "provider_added"
+	MsgProviderAddUsage          MsgKey = "provider_add_usage"
+	MsgProviderAddFailed         MsgKey = "provider_add_failed"
+	MsgProviderRemoved           MsgKey = "provider_removed"
+	MsgProviderRemoveFailed      MsgKey = "provider_remove_failed"
 
-	MsgVoiceNotEnabled       MsgKey = "voice_not_enabled"
+	MsgVoiceNotEnabled               MsgKey = "voice_not_enabled"
 	MsgVoiceUsingPlatformRecognition MsgKey = "voice_using_platform_recognition"
-	MsgVoiceNoFFmpeg         MsgKey = "voice_no_ffmpeg"
-	MsgVoiceTranscribing     MsgKey = "voice_transcribing"
-	MsgVoiceTranscribed      MsgKey = "voice_transcribed"
-	MsgVoiceTranscribeFailed MsgKey = "voice_transcribe_failed"
-	MsgVoiceEmpty            MsgKey = "voice_empty"
+	MsgVoiceNoFFmpeg                 MsgKey = "voice_no_ffmpeg"
+	MsgVoiceTranscribing             MsgKey = "voice_transcribing"
+	MsgVoiceTranscribed              MsgKey = "voice_transcribed"
+	MsgVoiceTranscribeFailed         MsgKey = "voice_transcribe_failed"
+	MsgVoiceEmpty                    MsgKey = "voice_empty"
 
 	MsgTTSNotEnabled MsgKey = "tts_not_enabled"
 	MsgTTSStatus     MsgKey = "tts_status"
@@ -237,6 +238,7 @@ const (
 
 	MsgModelCurrent          MsgKey = "model_current"
 	MsgModelChanged          MsgKey = "model_changed"
+	MsgModelChangeFailed     MsgKey = "model_change_failed"
 	MsgModelNotSupported     MsgKey = "model_not_supported"
 	MsgReasoningCurrent      MsgKey = "reasoning_current"
 	MsgReasoningChanged      MsgKey = "reasoning_changed"
@@ -475,28 +477,54 @@ const (
 	MsgBuiltinCmdShell     MsgKey = "shell"
 	MsgBuiltinCmdDir       MsgKey = "dir"
 
-	MsgDirChanged      MsgKey = "dir_changed"
-	MsgDirCurrent      MsgKey = "dir_current"
-	MsgDirUsage        MsgKey = "dir_usage"
-	MsgDirNotSupported MsgKey = "dir_not_supported"
-	MsgDirInvalidPath  MsgKey = "dir_invalid_path"
+	MsgDirChanged          MsgKey = "dir_changed"
+	MsgDirCurrent          MsgKey = "dir_current"
+	MsgDirReset            MsgKey = "dir_reset"
+	MsgDirUsage            MsgKey = "dir_usage"
+	MsgDirNotSupported     MsgKey = "dir_not_supported"
+	MsgDirInvalidPath      MsgKey = "dir_invalid_path"
+	MsgDirHistoryTitle     MsgKey = "dir_history_title"
+	MsgDirHistoryHint      MsgKey = "dir_history_hint"
+	MsgDirInvalidIndex     MsgKey = "dir_invalid_index"
+	MsgDirNoHistory        MsgKey = "dir_no_history"
+	MsgDirNoPrevious       MsgKey = "dir_no_previous"
+	MsgDirCardTitle        MsgKey = "dir_card_title"
+	MsgDirCardPageHint     MsgKey = "dir_card_page_hint"
+	MsgDirCardEmptyHistory MsgKey = "dir_card_empty_history"
+	MsgDirCardReset        MsgKey = "dir_card_reset"
+	MsgDirCardPrev         MsgKey = "dir_card_prev"
 
 	// Multi-workspace messages
-	MsgWsNotEnabled      MsgKey = "ws_not_enabled"
-	MsgWsNoBinding       MsgKey = "ws_no_binding"
-	MsgWsInfo            MsgKey = "ws_info"
-	MsgWsInitUsage       MsgKey = "ws_init_usage"
-	MsgWsBindUsage       MsgKey = "ws_bind_usage"
-	MsgWsBindSuccess     MsgKey = "ws_bind_success"
-	MsgWsBindNotFound    MsgKey = "ws_bind_not_found"
-	MsgWsUnbindSuccess   MsgKey = "ws_unbind_success"
-	MsgWsListEmpty       MsgKey = "ws_list_empty"
-	MsgWsListTitle       MsgKey = "ws_list_title"
-	MsgWsNotFoundHint    MsgKey = "ws_not_found_hint"
-	MsgWsResolutionError MsgKey = "ws_resolution_error"
-	MsgWsCloneProgress   MsgKey = "ws_clone_progress"
-	MsgWsCloneSuccess    MsgKey = "ws_clone_success"
-	MsgWsCloneFailed     MsgKey = "ws_clone_failed"
+	MsgWsNotEnabled            MsgKey = "ws_not_enabled"
+	MsgWsNoBinding             MsgKey = "ws_no_binding"
+	MsgWsInfo                  MsgKey = "ws_info"
+	MsgWsInfoShared            MsgKey = "ws_info_shared"
+	MsgWsUsage                 MsgKey = "ws_usage"
+	MsgWsInitUsage             MsgKey = "ws_init_usage"
+	MsgWsBindUsage             MsgKey = "ws_bind_usage"
+	MsgWsBindSuccess           MsgKey = "ws_bind_success"
+	MsgWsBindNotFound          MsgKey = "ws_bind_not_found"
+	MsgWsRouteUsage            MsgKey = "ws_route_usage"
+	MsgWsRouteSuccess          MsgKey = "ws_route_success"
+	MsgWsRouteAbsoluteRequired MsgKey = "ws_route_absolute_required"
+	MsgWsRouteNotFound         MsgKey = "ws_route_not_found"
+	MsgWsRouteNotDirectory     MsgKey = "ws_route_not_directory"
+	MsgWsUnbindSuccess         MsgKey = "ws_unbind_success"
+	MsgWsListEmpty             MsgKey = "ws_list_empty"
+	MsgWsListTitle             MsgKey = "ws_list_title"
+	MsgWsSharedNoBinding       MsgKey = "ws_shared_no_binding"
+	MsgWsSharedUsage           MsgKey = "ws_shared_usage"
+	MsgWsSharedBindSuccess     MsgKey = "ws_shared_bind_success"
+	MsgWsSharedRouteSuccess    MsgKey = "ws_shared_route_success"
+	MsgWsSharedUnbindSuccess   MsgKey = "ws_shared_unbind_success"
+	MsgWsSharedListEmpty       MsgKey = "ws_shared_list_empty"
+	MsgWsSharedListTitle       MsgKey = "ws_shared_list_title"
+	MsgWsSharedOnlyHint        MsgKey = "ws_shared_only_hint"
+	MsgWsNotFoundHint          MsgKey = "ws_not_found_hint"
+	MsgWsResolutionError       MsgKey = "ws_resolution_error"
+	MsgWsCloneProgress         MsgKey = "ws_clone_progress"
+	MsgWsCloneSuccess          MsgKey = "ws_clone_success"
+	MsgWsCloneFailed           MsgKey = "ws_clone_failed"
 )
 
 var messages = map[MsgKey]map[Language]string{
@@ -517,6 +545,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "🔧 **工具 #%d: %s**\n---\n%s",
 		LangJapanese:           "🔧 **ツール #%d: %s**\n---\n%s",
 		LangSpanish:            "🔧 **Herramienta #%d: %s**\n---\n%s",
+	},
+	MsgToolResult: {
+		LangEnglish:            "📤 **%s**\n---\n%s",
+		LangChinese:            "📤 **%s**\n---\n%s",
+		LangTraditionalChinese: "📤 **%s**\n---\n%s",
+		LangJapanese:           "📤 **%s**\n---\n%s",
+		LangSpanish:            "📤 **%s**\n---\n%s",
 	},
 	MsgExecutionStopped: {
 		LangEnglish:            "⏹ Execution stopped.",
@@ -748,7 +783,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/provider [list|add|remove|switch|clear]\n  Manage API providers\n\n" +
 			"/memory [add|global|global add]\n  View/edit agent memory files\n\n" +
 			"/allow <tool>\n  Pre-allow a tool (next session)\n\n" +
-			"/model [name]\n  View/switch model\n\n" +
+			"/model [switch <name>]\n  View/switch model\n\n" +
 			"/reasoning [level]\n  View/switch reasoning effort\n\n" +
 			"/mode [name]\n  View/switch permission mode\n\n" +
 			"/lang [en|zh|zh-TW|ja|es|auto]\n  View/switch language\n\n" +
@@ -756,7 +791,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/compress\n  Compress conversation context\n\n" +
 			"/tts [always|voice_only]\n  View/switch text-to-speech mode\n\n" +
 			"/shell <command>\n  Run a shell command and return the output\n\n" +
-			"/dir [path]\n  Show or switch agent working directory\n\n" +
+			"/dir [path|reset]\n  Show, switch, or reset agent working directory\n\n" +
 			"/stop\n  Stop current execution\n\n" +
 			"/cron [add|list|del|enable|disable]\n  Manage scheduled tasks\n\n" +
 			"/heartbeat [status|pause|resume|run|interval]\n  Manage heartbeat\n\n" +
@@ -791,7 +826,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/provider [list|add|remove|switch|clear]\n  管理 API Provider\n\n" +
 			"/memory [add|global|global add]\n  查看/编辑 Agent 记忆文件\n\n" +
 			"/allow <工具名>\n  预授权工具（下次会话生效）\n\n" +
-			"/model [名称]\n  查看/切换模型\n\n" +
+			"/model [switch <名称>]\n  查看/切换模型\n\n" +
 			"/reasoning [级别]\n  查看/切换推理强度\n\n" +
 			"/mode [名称]\n  查看/切换权限模式\n\n" +
 			"/lang [en|zh|zh-TW|ja|es|auto]\n  查看/切换语言\n\n" +
@@ -799,7 +834,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/compress\n  压缩会话上下文\n\n" +
 			"/tts [always|voice_only]\n  查看/切换语音合成模式\n\n" +
 			"/shell <命令>\n  执行 Shell 命令并返回结果\n\n" +
-			"/dir [路径]\n  查看或切换 Agent 工作目录\n\n" +
+			"/dir [路径|reset]\n  查看、切换或重置 Agent 工作目录\n\n" +
 			"/stop\n  停止当前执行\n\n" +
 			"/cron [add|list|del|enable|disable]\n  管理定时任务\n\n" +
 			"/heartbeat [status|pause|resume|run|interval]\n  管理心跳\n\n" +
@@ -834,7 +869,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/provider [list|add|remove|switch|clear]\n  管理 API Provider\n\n" +
 			"/memory [add|global|global add]\n  查看/編輯 Agent 記憶檔案\n\n" +
 			"/allow <工具名>\n  預授權工具（下次會話生效）\n\n" +
-			"/model [名稱]\n  查看/切換模型\n\n" +
+			"/model [switch <名稱>]\n  查看/切換模型\n\n" +
 			"/reasoning [級別]\n  查看/切換推理強度\n\n" +
 			"/mode [名稱]\n  查看/切換權限模式\n\n" +
 			"/lang [en|zh|zh-TW|ja|es|auto]\n  查看/切換語言\n\n" +
@@ -842,7 +877,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/compress\n  壓縮會話上下文\n\n" +
 			"/tts [always|voice_only]\n  查看/切換語音合成模式\n\n" +
 			"/shell <命令>\n  執行 Shell 命令並返回結果\n\n" +
-			"/dir [路徑]\n  查看或切換 Agent 工作目錄\n\n" +
+			"/dir [路徑|reset]\n  查看、切換或重置 Agent 工作目錄\n\n" +
 			"/stop\n  停止當前執行\n\n" +
 			"/cron [add|list|del|enable|disable]\n  管理定時任務\n\n" +
 			"/heartbeat [status|pause|resume|run|interval]\n  管理心跳\n\n" +
@@ -876,7 +911,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/provider [list|add|remove|switch|clear]\n  API プロバイダ管理\n\n" +
 			"/memory [add|global|global add]\n  エージェントメモリの表示/編集\n\n" +
 			"/allow <ツール名>\n  ツールを事前許可（次のセッションで有効）\n\n" +
-			"/model [名前]\n  モデルの表示/切り替え\n\n" +
+			"/model [switch <名前>]\n  モデルの表示/切り替え\n\n" +
 			"/reasoning [レベル]\n  推論レベルの表示/切り替え\n\n" +
 			"/mode [名前]\n  権限モードの表示/切り替え\n\n" +
 			"/lang [en|zh|zh-TW|ja|es|auto]\n  言語の表示/切り替え\n\n" +
@@ -884,7 +919,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/compress\n  会話コンテキストを圧縮\n\n" +
 			"/tts [always|voice_only]\n  音声合成モードの表示/切り替え\n\n" +
 			"/shell <コマンド>\n  シェルコマンドを実行して結果を返す\n\n" +
-			"/dir [パス]\n  エージェントの作業ディレクトリを表示/切り替え\n\n" +
+			"/dir [パス|reset]\n  エージェントの作業ディレクトリを表示/切り替え/リセット\n\n" +
 			"/stop\n  現在の実行を停止\n\n" +
 			"/cron [add|list|del|enable|disable]\n  スケジュールタスク管理\n\n" +
 			"/heartbeat [status|pause|resume|run|interval]\n  ハートビート管理\n\n" +
@@ -918,7 +953,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/provider [list|add|remove|switch|clear]\n  Gestionar proveedores API\n\n" +
 			"/memory [add|global|global add]\n  Ver/editar archivos de memoria del agente\n\n" +
 			"/allow <herramienta>\n  Pre-autorizar herramienta (próxima sesión)\n\n" +
-			"/model [nombre]\n  Ver/cambiar modelo\n\n" +
+			"/model [switch <nombre>]\n  Ver/cambiar modelo\n\n" +
 			"/reasoning [nivel]\n  Ver/cambiar nivel de razonamiento\n\n" +
 			"/mode [nombre]\n  Ver/cambiar modo de permisos\n\n" +
 			"/lang [en|zh|zh-TW|ja|es|auto]\n  Ver/cambiar idioma\n\n" +
@@ -926,7 +961,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/compress\n  Comprimir contexto de conversación\n\n" +
 			"/tts [always|voice_only]\n  Ver/cambiar modo de síntesis de voz\n\n" +
 			"/shell <comando>\n  Ejecutar un comando shell y devolver la salida\n\n" +
-			"/dir [ruta]\n  Ver o cambiar el directorio de trabajo del agente\n\n" +
+			"/dir [ruta|reset]\n  Ver, cambiar o restablecer el directorio de trabajo del agente\n\n" +
 			"/stop\n  Detener ejecución actual\n\n" +
 			"/cron [add|list|del|enable|disable]\n  Gestionar tareas programadas\n\n" +
 			"/heartbeat [status|pause|resume|run|interval]\n  Gestionar heartbeat\n\n" +
@@ -1006,7 +1041,7 @@ var messages = map[MsgKey]map[Language]string{
 	},
 	MsgHelpAgentSection: {
 		LangEnglish: "**Agent Configuration**\n" +
-			"/model [name] — View/switch model\n" +
+			"/model [switch <name>] — View/switch model\n" +
 			"/mode [name] — View/switch permission mode\n" +
 			"/provider [list|add|...] — Manage API providers\n" +
 			"/memory [add|global|...] — View/edit memory files\n" +
@@ -1014,7 +1049,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/lang [en|zh|...] — View/switch language\n" +
 			"/quiet [global] — Toggle progress messages",
 		LangChinese: "**Agent 配置**\n" +
-			"/model [名称] — 查看/切换模型\n" +
+			"/model [switch <名称>] — 查看/切换模型\n" +
 			"/mode [名称] — 查看/切换权限模式\n" +
 			"/provider [list|add|...] — 管理 API Provider\n" +
 			"/memory [add|global|...] — 查看/编辑记忆文件\n" +
@@ -1022,7 +1057,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/lang [en|zh|...] — 查看/切换语言\n" +
 			"/quiet [global] — 开关进度消息",
 		LangTraditionalChinese: "**Agent 配置**\n" +
-			"/model [名稱] — 查看/切換模型\n" +
+			"/model [switch <名稱>] — 查看/切換模型\n" +
 			"/mode [名稱] — 查看/切換權限模式\n" +
 			"/provider [list|add|...] — 管理 API Provider\n" +
 			"/memory [add|global|...] — 查看/編輯記憶檔案\n" +
@@ -1030,7 +1065,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/lang [en|zh|...] — 查看/切換語言\n" +
 			"/quiet [global] — 開關進度訊息",
 		LangJapanese: "**エージェント設定**\n" +
-			"/model [名前] — モデルの表示/切り替え\n" +
+			"/model [switch <名前>] — モデルの表示/切り替え\n" +
 			"/mode [名前] — 権限モードの表示/切り替え\n" +
 			"/provider [list|add|...] — API プロバイダ管理\n" +
 			"/memory [add|global|...] — メモリの表示/編集\n" +
@@ -1038,7 +1073,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/lang [en|zh|...] — 言語の表示/切り替え\n" +
 			"/quiet [global] — 進捗メッセージの表示切替",
 		LangSpanish: "**Configuración del agente**\n" +
-			"/model [nombre] — Ver/cambiar modelo\n" +
+			"/model [switch <nombre>] — Ver/cambiar modelo\n" +
 			"/mode [nombre] — Ver/cambiar modo de permisos\n" +
 			"/provider [list|add|...] — Gestionar proveedores\n" +
 			"/memory [add|global|...] — Ver/editar memoria\n" +
@@ -1049,7 +1084,7 @@ var messages = map[MsgKey]map[Language]string{
 	MsgHelpToolsSection: {
 		LangEnglish: "**Tools & Automation**\n" +
 			"/shell <command> — Run a shell command\n" +
-			"/dir [path] — Show or switch work directory\n" +
+			"/dir [path|reset] — Show, switch, or reset work directory\n" +
 			"/cron [add|list|del|...] — Scheduled tasks\n" +
 			"/commands [add|del] — Custom commands\n" +
 			"/alias [add|del] — Command aliases\n" +
@@ -1058,7 +1093,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/stop — Stop current execution",
 		LangChinese: "**工具与自动化**\n" +
 			"/shell <命令> — 执行 Shell 命令\n" +
-			"/dir [路径] — 查看或切换工作目录\n" +
+			"/dir [路径|reset] — 查看、切换或重置工作目录\n" +
 			"/cron [add|list|del|...] — 定时任务\n" +
 			"/commands [add|del] — 自定义命令\n" +
 			"/alias [add|del] — 命令别名\n" +
@@ -1067,7 +1102,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/stop — 停止当前执行",
 		LangTraditionalChinese: "**工具與自動化**\n" +
 			"/shell <命令> — 執行 Shell 命令\n" +
-			"/dir [路徑] — 查看或切換工作目錄\n" +
+			"/dir [路徑|reset] — 查看、切換或重置工作目錄\n" +
 			"/cron [add|list|del|...] — 定時任務\n" +
 			"/commands [add|del] — 自訂命令\n" +
 			"/alias [add|del] — 命令別名\n" +
@@ -1076,7 +1111,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/stop — 停止當前執行",
 		LangJapanese: "**ツール・自動化**\n" +
 			"/shell <コマンド> — シェルコマンド実行\n" +
-			"/dir [パス] — 作業ディレクトリの表示/切り替え\n" +
+			"/dir [パス|reset] — 作業ディレクトリの表示/切り替え/リセット\n" +
 			"/cron [add|list|del|...] — スケジュールタスク\n" +
 			"/commands [add|del] — カスタムコマンド\n" +
 			"/alias [add|del] — コマンドエイリアス\n" +
@@ -1085,7 +1120,7 @@ var messages = map[MsgKey]map[Language]string{
 			"/stop — 現在の実行を停止",
 		LangSpanish: "**Herramientas y automatización**\n" +
 			"/shell <comando> — Ejecutar comando shell\n" +
-			"/dir [ruta] — Ver o cambiar directorio de trabajo\n" +
+			"/dir [ruta|reset] — Ver, cambiar o restablecer directorio de trabajo\n" +
 			"/cron [add|list|del|...] — Tareas programadas\n" +
 			"/commands [add|del] — Comandos personalizados\n" +
 			"/alias [add|del] — Alias de comandos\n" +
@@ -1729,6 +1764,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "モデルを `%s` に切り替えました。新しいセッションで使用されます。",
 		LangSpanish:            "Modelo cambiado a `%s`. Las nuevas sesiones usarán este modelo.",
 	},
+	MsgModelChangeFailed: {
+		LangEnglish:            "❌ Failed to change model: %v",
+		LangChinese:            "❌ 切换模型失败: %v",
+		LangTraditionalChinese: "❌ 切換模型失敗: %v",
+		LangJapanese:           "❌ モデルの切り替えに失敗しました: %v",
+		LangSpanish:            "❌ Error al cambiar el modelo: %v",
+	},
 	MsgModelNotSupported: {
 		LangEnglish:            "This agent does not support model switching.",
 		LangChinese:            "当前 Agent 不支持模型切换。",
@@ -1941,11 +1983,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Modelos disponibles:\n",
 	},
 	MsgModelUsage: {
-		LangEnglish:            "Usage: `/model <number>` or `/model <model_name>`",
-		LangChinese:            "用法: `/model <序号>` 或 `/model <模型名>`",
-		LangTraditionalChinese: "用法: `/model <序號>` 或 `/model <模型名>`",
-		LangJapanese:           "使い方: `/model <番号>` または `/model <モデル名>`",
-		LangSpanish:            "Uso: `/model <número>` o `/model <nombre_modelo>`",
+		LangEnglish:            "Usage: `/model switch <number>` or `/model switch <model_name>`",
+		LangChinese:            "用法: `/model switch <序号>` 或 `/model switch <模型名>`",
+		LangTraditionalChinese: "用法: `/model switch <序號>` 或 `/model switch <模型名>`",
+		LangJapanese:           "使い方: `/model switch <番号>` または `/model switch <モデル名>`",
+		LangSpanish:            "Uso: `/model switch <número>` o `/model switch <nombre_modelo>`",
 	},
 	MsgReasoningDefault: {
 		LangEnglish:            "Current reasoning effort: (not set, using Codex default)\n",
@@ -3138,11 +3180,11 @@ var messages = map[MsgKey]map[Language]string{
 		LangSpanish:            "Ejecutar un comando shell, arg: <comando>",
 	},
 	MsgBuiltinCmdDir: {
-		LangEnglish:            "Show or switch agent working directory, arg: <path>",
-		LangChinese:            "查看或切换 Agent 工作目录，参数: <路径>",
-		LangTraditionalChinese: "查看或切換 Agent 工作目錄，參數: <路徑>",
-		LangJapanese:           "エージェントの作業ディレクトリを表示/変更、引数: <パス>",
-		LangSpanish:            "Ver o cambiar el directorio de trabajo del agente, arg: <ruta>",
+		LangEnglish:            "Show, switch, or reset agent working directory, arg: <path>",
+		LangChinese:            "查看、切换或重置 Agent 工作目录，参数: <路径>",
+		LangTraditionalChinese: "查看、切換或重置 Agent 工作目錄，參數: <路徑>",
+		LangJapanese:           "エージェントの作業ディレクトリを表示/変更/リセット、引数: <パス>",
+		LangSpanish:            "Ver, cambiar o restablecer el directorio de trabajo del agente, arg: <ruta>",
 	},
 	MsgDirChanged: {
 		LangEnglish:            "✅ Work directory changed to: `%s`\nThe next session will start in this directory.",
@@ -3158,12 +3200,19 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "📂 現在の作業ディレクトリ: `%s`",
 		LangSpanish:            "📂 Directorio de trabajo actual: `%s`",
 	},
+	MsgDirReset: {
+		LangEnglish:            "✅ Work directory reset to the configured default: `%s`",
+		LangChinese:            "✅ 工作目录已重置为配置的默认目录: `%s`",
+		LangTraditionalChinese: "✅ 工作目錄已重置為設定的預設目錄: `%s`",
+		LangJapanese:           "✅ 作業ディレクトリを設定済みのデフォルトに戻しました: `%s`",
+		LangSpanish:            "✅ El directorio de trabajo se restauró al valor predeterminado configurado: `%s`",
+	},
 	MsgDirUsage: {
-		LangEnglish:            "Usage: `/dir <path>`\nExample: `/dir ../project`",
-		LangChinese:            "用法: `/dir <路径>`\n示例: `/dir ../project`",
-		LangTraditionalChinese: "用法: `/dir <路徑>`\n範例: `/dir ../project`",
-		LangJapanese:           "使い方: `/dir <パス>`\n例: `/dir ../project`",
-		LangSpanish:            "Uso: `/dir <ruta>`\nEjemplo: `/dir ../project`",
+		LangEnglish:            "Usage: `/dir <path>`\n       `/dir reset`\nExample: `/dir ../project`",
+		LangChinese:            "用法: `/dir <路径>`\n      `/dir reset`\n示例: `/dir ../project`",
+		LangTraditionalChinese: "用法: `/dir <路徑>`\n      `/dir reset`\n範例: `/dir ../project`",
+		LangJapanese:           "使い方: `/dir <パス>`\n       `/dir reset`\n例: `/dir ../project`",
+		LangSpanish:            "Uso: `/dir <ruta>`\n      `/dir reset`\nEjemplo: `/dir ../project`",
 	},
 	MsgDirNotSupported: {
 		LangEnglish:            "This agent does not support dynamic work directory switching.",
@@ -3178,6 +3227,76 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "❌ 目錄不存在: `%s`",
 		LangJapanese:           "❌ ディレクトリが存在しません: `%s`",
 		LangSpanish:            "❌ El directorio no existe: `%s`",
+	},
+	MsgDirHistoryTitle: {
+		LangEnglish:            "📋 History:",
+		LangChinese:            "📋 历史记录:",
+		LangTraditionalChinese: "📋 歷史記錄:",
+		LangJapanese:           "📋 履歴:",
+		LangSpanish:            "📋 Historial:",
+	},
+	MsgDirHistoryHint: {
+		LangEnglish:            "💡 Use `/dir <number>` to switch, or `/dir -` for previous.",
+		LangChinese:            "💡 使用 `/dir <序号>` 切换，或 `/dir -` 返回上一个目录。",
+		LangTraditionalChinese: "💡 使用 `/dir <序號>` 切換，或 `/dir -` 返回上一個目錄。",
+		LangJapanese:           "💡 `/dir <番号>` で切り替え、`/dir -` で前のディレクトリに戻ります。",
+		LangSpanish:            "💡 Usa `/dir <número>` para cambiar, o `/dir -` para el anterior.",
+	},
+	MsgDirInvalidIndex: {
+		LangEnglish:            "❌ Invalid history index: %d",
+		LangChinese:            "❌ 无效的历史序号: %d",
+		LangTraditionalChinese: "❌ 無效的歷史序號: %d",
+		LangJapanese:           "❌ 無効な履歴番号: %d",
+		LangSpanish:            "❌ Índice de historial inválido: %d",
+	},
+	MsgDirNoHistory: {
+		LangEnglish:            "❌ No directory history available.",
+		LangChinese:            "❌ 暂无目录历史记录。",
+		LangTraditionalChinese: "❌ 暫無目錄歷史記錄。",
+		LangJapanese:           "❌ ディレクトリの履歴がありません。",
+		LangSpanish:            "❌ No hay historial de directorios.",
+	},
+	MsgDirNoPrevious: {
+		LangEnglish:            "❌ No previous directory in history.",
+		LangChinese:            "❌ 没有上一个目录记录。",
+		LangTraditionalChinese: "❌ 沒有上一個目錄記錄。",
+		LangJapanese:           "❌ 前のディレクトリが履歴にありません。",
+		LangSpanish:            "❌ No hay directorio anterior en el historial.",
+	},
+	MsgDirCardTitle: {
+		LangEnglish:            "Working directory",
+		LangChinese:            "工作目录",
+		LangTraditionalChinese: "工作目錄",
+		LangJapanese:           "作業ディレクトリ",
+		LangSpanish:            "Directorio de trabajo",
+	},
+	MsgDirCardPageHint: {
+		LangEnglish:            "Page %d/%d — use `/dir <page>` or the buttons below.",
+		LangChinese:            "第 %d/%d 页 — 可用 `/dir <页码>` 或下方按钮翻页。",
+		LangTraditionalChinese: "第 %d/%d 頁 — 可用 `/dir <頁碼>` 或下方按鈕翻頁。",
+		LangJapanese:           "%d/%d ページ — `/dir <ページ>` または下のボタンで移動。",
+		LangSpanish:            "Página %d/%d — usa `/dir <página>` o los botones.",
+	},
+	MsgDirCardEmptyHistory: {
+		LangEnglish:            "No directory history yet. Type `/dir <path>` to switch, or use **Reset** to restore the default.",
+		LangChinese:            "暂无目录历史。可发送 `/dir <路径>` 切换，或点 **重置** 恢复默认目录。",
+		LangTraditionalChinese: "暫無目錄歷史。可傳送 `/dir <路徑>` 切換，或點 **重置** 恢復預設目錄。",
+		LangJapanese:           "まだディレクトリ履歴がありません。`/dir <パス>` で切替えるか、**リセット** で既定に戻せます。",
+		LangSpanish:            "Aún no hay historial de directorios. Usa `/dir <ruta>` o **Restablecer** al valor por defecto.",
+	},
+	MsgDirCardReset: {
+		LangEnglish:            "Reset",
+		LangChinese:            "重置",
+		LangTraditionalChinese: "重置",
+		LangJapanese:           "リセット",
+		LangSpanish:            "Restablecer",
+	},
+	MsgDirCardPrev: {
+		LangEnglish:            "Previous",
+		LangChinese:            "上一目录",
+		LangTraditionalChinese: "上一目錄",
+		LangJapanese:           "前へ",
+		LangSpanish:            "Anterior",
 	},
 
 	// Multi-workspace messages
@@ -3201,6 +3320,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "工作區: `%s`\n綁定時間: %s",
 		LangJapanese:           "ワークスペース: `%s`\nバインド: %s",
 		LangSpanish:            "Workspace: `%s`\nVinculado: %s",
+	},
+	MsgWsInfoShared: {
+		LangEnglish:            "Workspace: `%s`\nBound: %s\nSource: shared",
+		LangChinese:            "工作区: `%s`\n绑定时间: %s\n来源: shared",
+		LangTraditionalChinese: "工作區: `%s`\n綁定時間: %s\n來源: shared",
+		LangJapanese:           "ワークスペース: `%s`\nバインド: %s\nソース: shared",
+		LangSpanish:            "Workspace: `%s`\nVinculado: %s\nOrigen: shared",
+	},
+	MsgWsUsage: {
+		LangEnglish:            "Usage: `/workspace [bind <name> | route <absolute-path> | init <url> | unbind | list | shared ...]`",
+		LangChinese:            "用法: `/workspace [bind <名称> | route <绝对路径> | init <仓库地址> | unbind | list | shared ...]`",
+		LangTraditionalChinese: "用法: `/workspace [bind <名稱> | route <絕對路徑> | init <倉庫地址> | unbind | list | shared ...]`",
+		LangJapanese:           "使い方: `/workspace [bind <名前> | route <絶対パス> | init <url> | unbind | list | shared ...]`",
+		LangSpanish:            "Uso: `/workspace [bind <nombre> | route <ruta-absoluta> | init <url> | unbind | list | shared ...]`",
 	},
 	MsgWsInitUsage: {
 		LangEnglish:            "Usage: `/workspace init <git-url>`",
@@ -3230,6 +3363,41 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "ワークスペースが見つかりません: `%s`",
 		LangSpanish:            "Workspace no encontrado: `%s`",
 	},
+	MsgWsRouteUsage: {
+		LangEnglish:            "Usage: `/workspace route <absolute-path>`",
+		LangChinese:            "用法: `/workspace route <绝对路径>`",
+		LangTraditionalChinese: "用法: `/workspace route <絕對路徑>`",
+		LangJapanese:           "使い方: `/workspace route <絶対パス>`",
+		LangSpanish:            "Uso: `/workspace route <ruta-absoluta>`",
+	},
+	MsgWsRouteSuccess: {
+		LangEnglish:            "✅ Workspace routed: `%s`",
+		LangChinese:            "✅ 工作区路由成功: `%s`",
+		LangTraditionalChinese: "✅ 工作區路由成功: `%s`",
+		LangJapanese:           "✅ ワークスペースをルーティングしました: `%s`",
+		LangSpanish:            "✅ Workspace enrutado: `%s`",
+	},
+	MsgWsRouteAbsoluteRequired: {
+		LangEnglish:            "Workspace route must use an absolute path: `%s`",
+		LangChinese:            "工作区路由必须使用绝对路径: `%s`",
+		LangTraditionalChinese: "工作區路由必須使用絕對路徑: `%s`",
+		LangJapanese:           "ワークスペースの route には絶対パスが必要です: `%s`",
+		LangSpanish:            "La ruta del workspace debe ser absoluta: `%s`",
+	},
+	MsgWsRouteNotFound: {
+		LangEnglish:            "Workspace path not found: `%s`",
+		LangChinese:            "工作区路径不存在: `%s`",
+		LangTraditionalChinese: "工作區路徑不存在: `%s`",
+		LangJapanese:           "ワークスペースのパスが見つかりません: `%s`",
+		LangSpanish:            "Ruta de workspace no encontrada: `%s`",
+	},
+	MsgWsRouteNotDirectory: {
+		LangEnglish:            "Workspace route target is not a directory: `%s`",
+		LangChinese:            "工作区路由目标不是目录: `%s`",
+		LangTraditionalChinese: "工作區路由目標不是目錄: `%s`",
+		LangJapanese:           "ワークスペースの route 先がディレクトリではありません: `%s`",
+		LangSpanish:            "El destino de workspace route no es un directorio: `%s`",
+	},
 	MsgWsUnbindSuccess: {
 		LangEnglish:            "✅ Workspace unbound.",
 		LangChinese:            "✅ 已解除工作区绑定。",
@@ -3250,6 +3418,62 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "已綁定的工作區：",
 		LangJapanese:           "バインドされたワークスペース：",
 		LangSpanish:            "Workspaces vinculados:",
+	},
+	MsgWsSharedNoBinding: {
+		LangEnglish:            "No shared workspace bound to this channel.",
+		LangChinese:            "此频道未绑定共享工作区。",
+		LangTraditionalChinese: "此頻道未綁定共享工作區。",
+		LangJapanese:           "このチャンネルに共有ワークスペースがバインドされていません。",
+		LangSpanish:            "No hay workspace compartido vinculado a este canal.",
+	},
+	MsgWsSharedUsage: {
+		LangEnglish:            "Usage: `/workspace shared [bind <name> | route <absolute-path> | init <url> | unbind | list]`",
+		LangChinese:            "用法: `/workspace shared [bind <名称> | route <绝对路径> | init <仓库地址> | unbind | list]`",
+		LangTraditionalChinese: "用法: `/workspace shared [bind <名稱> | route <絕對路徑> | init <倉庫地址> | unbind | list]`",
+		LangJapanese:           "使い方: `/workspace shared [bind <名前> | route <絶対パス> | init <url> | unbind | list]`",
+		LangSpanish:            "Uso: `/workspace shared [bind <nombre> | route <ruta-absoluta> | init <url> | unbind | list]`",
+	},
+	MsgWsSharedBindSuccess: {
+		LangEnglish:            "✅ Shared workspace bound: `%s`",
+		LangChinese:            "✅ 共享工作区绑定成功: `%s`",
+		LangTraditionalChinese: "✅ 共享工作區綁定成功: `%s`",
+		LangJapanese:           "✅ 共有ワークスペースをバインドしました: `%s`",
+		LangSpanish:            "✅ Workspace compartido vinculado: `%s`",
+	},
+	MsgWsSharedRouteSuccess: {
+		LangEnglish:            "✅ Shared workspace routed: `%s`",
+		LangChinese:            "✅ 共享工作区路由成功: `%s`",
+		LangTraditionalChinese: "✅ 共享工作區路由成功: `%s`",
+		LangJapanese:           "✅ 共有ワークスペースをルーティングしました: `%s`",
+		LangSpanish:            "✅ Workspace compartido enrutado: `%s`",
+	},
+	MsgWsSharedUnbindSuccess: {
+		LangEnglish:            "✅ Shared workspace unbound.",
+		LangChinese:            "✅ 已解除共享工作区绑定。",
+		LangTraditionalChinese: "✅ 已解除共享工作區綁定。",
+		LangJapanese:           "✅ 共有ワークスペースのバインドを解除しました。",
+		LangSpanish:            "✅ Workspace compartido desvinculado.",
+	},
+	MsgWsSharedListEmpty: {
+		LangEnglish:            "No shared workspaces bound.",
+		LangChinese:            "没有绑定的共享工作区。",
+		LangTraditionalChinese: "沒有綁定的共享工作區。",
+		LangJapanese:           "バインドされた共有ワークスペースがありません。",
+		LangSpanish:            "No hay workspaces compartidos vinculados.",
+	},
+	MsgWsSharedListTitle: {
+		LangEnglish:            "Shared workspaces:",
+		LangChinese:            "共享工作区：",
+		LangTraditionalChinese: "共享工作區：",
+		LangJapanese:           "共有ワークスペース：",
+		LangSpanish:            "Workspaces compartidos:",
+	},
+	MsgWsSharedOnlyHint: {
+		LangEnglish:            "The current effective workspace comes from the shared layer. Use `/workspace shared unbind` to remove it.",
+		LangChinese:            "当前生效的工作区来自 shared 层。请使用 `/workspace shared unbind` 解除绑定。",
+		LangTraditionalChinese: "當前生效的工作區來自 shared 層。請使用 `/workspace shared unbind` 解除綁定。",
+		LangJapanese:           "現在有効なワークスペースは shared レイヤー由来です。解除するには `/workspace shared unbind` を使用してください。",
+		LangSpanish:            "El workspace efectivo actual proviene de la capa shared. Usa `/workspace shared unbind` para quitarlo.",
 	},
 	MsgWsNotFoundHint: {
 		LangEnglish:            "No workspace found for this channel. Send me a git repo URL to clone, or use `/workspace init <url>`.",

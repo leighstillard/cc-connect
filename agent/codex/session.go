@@ -24,17 +24,18 @@ import (
 // codexSession manages a multi-turn Codex conversation.
 // First Send() uses `codex exec`, subsequent ones use `codex exec resume <threadID>`.
 type codexSession struct {
-	workDir  string
-	model    string
-	effort   string
-	mode     string
-	extraEnv []string
-	events   chan core.Event
-	threadID atomic.Value // stores string — Codex thread_id
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	alive    atomic.Bool
+	workDir    string
+	model      string
+	effort     string
+	mode       string
+	extraEnv   []string
+	events     chan core.Event
+	threadID   atomic.Value // stores string — Codex thread_id
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	alive      atomic.Bool
+	closeOnce  sync.Once
 
 	pendingMsgs []string // buffered agent_message texts awaiting classification
 }
@@ -54,7 +55,7 @@ func newCodexSession(ctx context.Context, workDir, model, effort, mode, resumeID
 	}
 	cs.alive.Store(true)
 
-	if resumeID != "" {
+	if resumeID != "" && resumeID != core.ContinueSession {
 		cs.threadID.Store(resumeID)
 	}
 
@@ -141,9 +142,11 @@ func (cs *codexSession) buildExecArgs(prompt string, imagePaths []string) []stri
 
 	var args []string
 	if isResume {
-		args = []string{"exec", "resume", "--json", "--skip-git-repo-check"}
+		// For resume: codex exec resume ... <thread_id> [--image ...] --json --cd <dir> <prompt>
+		// The codex CLI requires --json after the thread_id positional argument.
+		args = []string{"exec", "resume", "--skip-git-repo-check"}
 	} else {
-		args = []string{"exec", "--json", "--skip-git-repo-check"}
+		args = []string{"exec", "--skip-git-repo-check"}
 	}
 
 	switch cs.mode {
@@ -165,12 +168,13 @@ func (cs *codexSession) buildExecArgs(prompt string, imagePaths []string) []stri
 		for _, imagePath := range imagePaths {
 			args = append(args, "--image", imagePath)
 		}
-		args = append(args, prompt)
+		// codex exec resume does not support --cd; cmd.Dir handles cwd instead.
+		args = append(args, "--json", prompt)
 	} else {
 		for _, imagePath := range imagePaths {
 			args = append(args, "--image", imagePath)
 		}
-		args = append(args, "--cd", cs.workDir, prompt)
+		args = append(args, "--json", "--cd", cs.workDir, prompt)
 	}
 	return args
 }
@@ -320,7 +324,13 @@ func (cs *codexSession) handleEvent(raw map[string]any) {
 
 // flushPendingAsThinking emits all buffered agent_messages as EventThinking.
 func (cs *codexSession) flushPendingAsThinking() {
+	if cs.ctx.Err() != nil {
+		return
+	}
 	for _, text := range cs.pendingMsgs {
+		if cs.ctx.Err() != nil {
+			return
+		}
 		evt := core.Event{Type: core.EventThinking, Content: text}
 		select {
 		case cs.events <- evt:
@@ -333,7 +343,13 @@ func (cs *codexSession) flushPendingAsThinking() {
 
 // flushPendingAsText emits all buffered agent_messages as EventText (final response).
 func (cs *codexSession) flushPendingAsText() {
+	if cs.ctx.Err() != nil {
+		return
+	}
 	for _, text := range cs.pendingMsgs {
+		if cs.ctx.Err() != nil {
+			return
+		}
 		evt := core.Event{Type: core.EventText, Content: text}
 		select {
 		case cs.events <- evt:
@@ -522,7 +538,9 @@ func (cs *codexSession) Close() error {
 	case <-time.After(8 * time.Second):
 		slog.Warn("codexSession: close timed out, abandoning wg.Wait")
 	}
-	close(cs.events)
+	cs.closeOnce.Do(func() {
+		close(cs.events)
+	})
 	return nil
 }
 

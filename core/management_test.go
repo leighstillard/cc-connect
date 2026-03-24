@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,7 +58,9 @@ func mgmtGet(t *testing.T, url, token string) mgmtResponse {
 	}
 	defer resp.Body.Close()
 	var r mgmtResponse
-	json.NewDecoder(resp.Body).Decode(&r)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode GET response: %v", err)
+	}
 	return r
 }
 
@@ -65,7 +68,9 @@ func mgmtPost(t *testing.T, url, token string, body any) mgmtResponse {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode POST body: %v", err)
+		}
 	}
 	req, _ := http.NewRequest("POST", url, &buf)
 	req.Header.Set("Content-Type", "application/json")
@@ -78,7 +83,9 @@ func mgmtPost(t *testing.T, url, token string, body any) mgmtResponse {
 	}
 	defer resp.Body.Close()
 	var r mgmtResponse
-	json.NewDecoder(resp.Body).Decode(&r)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode POST response: %v", err)
+	}
 	return r
 }
 
@@ -86,7 +93,9 @@ func mgmtPatch(t *testing.T, url, token string, body any) mgmtResponse {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			t.Fatalf("encode PATCH body: %v", err)
+		}
 	}
 	req, _ := http.NewRequest("PATCH", url, &buf)
 	req.Header.Set("Content-Type", "application/json")
@@ -99,7 +108,9 @@ func mgmtPatch(t *testing.T, url, token string, body any) mgmtResponse {
 	}
 	defer resp.Body.Close()
 	var r mgmtResponse
-	json.NewDecoder(resp.Body).Decode(&r)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode PATCH response: %v", err)
+	}
 	return r
 }
 
@@ -115,7 +126,9 @@ func mgmtDelete(t *testing.T, url, token string) mgmtResponse {
 	}
 	defer resp.Body.Close()
 	var r mgmtResponse
-	json.NewDecoder(resp.Body).Decode(&r)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode DELETE response: %v", err)
+	}
 	return r
 }
 
@@ -168,7 +181,9 @@ func TestMgmt_Status(t *testing.T) {
 	}
 
 	var data map[string]any
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal status data: %v", err)
+	}
 	if data["projects_count"] != float64(1) {
 		t.Fatalf("expected 1 project, got %v", data["projects_count"])
 	}
@@ -185,7 +200,9 @@ func TestMgmt_Projects(t *testing.T) {
 	var data struct {
 		Projects []map[string]any `json:"projects"`
 	}
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal projects data: %v", err)
+	}
 	if len(data.Projects) != 1 {
 		t.Fatalf("expected 1 project, got %d", len(data.Projects))
 	}
@@ -203,7 +220,9 @@ func TestMgmt_ProjectDetail(t *testing.T) {
 	}
 
 	var data map[string]any
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal project detail: %v", err)
+	}
 	if data["name"] != "test-project" {
 		t.Fatalf("expected test-project, got %v", data["name"])
 	}
@@ -261,7 +280,9 @@ func TestMgmt_SessionDetail(t *testing.T) {
 	var data struct {
 		History []map[string]any `json:"history"`
 	}
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal session detail: %v", err)
+	}
 	if len(data.History) != 2 {
 		t.Fatalf("expected 2 history entries, got %d", len(data.History))
 	}
@@ -295,7 +316,9 @@ func TestMgmt_Config(t *testing.T) {
 	var data struct {
 		Projects []map[string]any `json:"projects"`
 	}
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal config data: %v", err)
+	}
 	if len(data.Projects) != 1 {
 		t.Fatalf("expected 1 project in config, got %d", len(data.Projects))
 	}
@@ -334,7 +357,9 @@ func TestMgmt_HeartbeatNotConfigured(t *testing.T) {
 	r := mgmtGet(t, ts.URL+"/api/v1/projects/test-project/heartbeat", "tok")
 	if r.OK {
 		var data map[string]any
-		json.Unmarshal(r.Data, &data)
+		if err := json.Unmarshal(r.Data, &data); err != nil {
+			t.Fatalf("unmarshal heartbeat data: %v", err)
+		}
 		// heartbeat scheduler is nil, so we expect service unavailable
 	}
 }
@@ -350,7 +375,9 @@ func TestMgmt_HeartbeatWithScheduler(t *testing.T) {
 	}
 
 	var data map[string]any
-	json.Unmarshal(r.Data, &data)
+	if err := json.Unmarshal(r.Data, &data); err != nil {
+		t.Fatalf("unmarshal heartbeat status: %v", err)
+	}
 	if data["enabled"] != false {
 		t.Fatalf("expected heartbeat disabled, got %v", data["enabled"])
 	}
@@ -394,7 +421,9 @@ func TestMgmt_CronWithScheduler(t *testing.T) {
 	}
 
 	var job CronJob
-	json.Unmarshal(r.Data, &job)
+	if err := json.Unmarshal(r.Data, &job); err != nil {
+		t.Fatalf("unmarshal cron job: %v", err)
+	}
 	if job.ID == "" {
 		t.Fatal("expected cron job ID")
 	}
@@ -452,8 +481,134 @@ func TestMgmt_MethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
 
 	var r mgmtResponse
-	json.NewDecoder(resp.Body).Decode(&r)
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		t.Fatalf("decode method not allowed response: %v", err)
+	}
+	resp.Body.Close()
+}
+
+func TestMgmt_ProjectModel_UsesSwitchModelWithActiveProvider(t *testing.T) {
+	agent := &stubModelModeAgent{
+		model: "gpt-4.1-mini",
+		providers: []ProviderConfig{
+			{
+				Name:   "openai",
+				Model:  "gpt-4.1-mini",
+				Models: []ModelOption{{Name: "gpt-4.1", Alias: "gpt"}, {Name: "gpt-4.1-mini", Alias: "mini"}},
+			},
+		},
+		active: "openai",
+	}
+	e := NewEngine("test-project", agent, nil, "", LangEnglish)
+	var savedProvider, savedModel string
+	e.SetProviderModelSaveFunc(func(providerName, model string) error {
+		savedProvider = providerName
+		savedModel = model
+		return nil
+	})
+
+	mgmt := NewManagementServer(0, "tok", nil)
+	mgmt.RegisterEngine("test-project", e)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	r := mgmtPost(t, ts.URL+"/api/v1/projects/test-project/model", "tok", map[string]string{"model": "gpt-4.1"})
+	if !r.OK {
+		t.Fatalf("update model failed: %s", r.Error)
+	}
+
+	if got := agent.GetModel(); got != "gpt-4.1" {
+		t.Fatalf("GetModel() = %q, want gpt-4.1", got)
+	}
+	if got := agent.GetActiveProvider(); got == nil || got.Model != "gpt-4.1" {
+		t.Fatalf("active provider model = %#v, want gpt-4.1", got)
+	}
+	if savedProvider != "openai" || savedModel != "gpt-4.1" {
+		t.Fatalf("saved provider/model = %q/%q, want openai/gpt-4.1", savedProvider, savedModel)
+	}
+}
+
+func TestMgmt_ProjectModel_SavesModelWithoutActiveProvider(t *testing.T) {
+	agent := &stubModelModeAgent{
+		model: "gpt-4.1-mini",
+		providers: []ProviderConfig{
+			{
+				Name:   "openai",
+				Model:  "gpt-4.1-mini",
+				Models: []ModelOption{{Name: "gpt-4.1", Alias: "gpt"}, {Name: "gpt-4.1-mini", Alias: "mini"}},
+			},
+		},
+	}
+	e := NewEngine("test-project", agent, nil, "", LangEnglish)
+	var savedModel string
+	var providerSaveCalled bool
+	e.SetModelSaveFunc(func(model string) error {
+		savedModel = model
+		return nil
+	})
+	e.SetProviderModelSaveFunc(func(providerName, model string) error {
+		providerSaveCalled = true
+		return nil
+	})
+
+	mgmt := NewManagementServer(0, "tok", nil)
+	mgmt.RegisterEngine("test-project", e)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	r := mgmtPost(t, ts.URL+"/api/v1/projects/test-project/model", "tok", map[string]string{"model": "gpt-4.1"})
+	if !r.OK {
+		t.Fatalf("update model failed: %s", r.Error)
+	}
+
+	if got := agent.GetModel(); got != "gpt-4.1" {
+		t.Fatalf("GetModel() = %q, want gpt-4.1", got)
+	}
+	if savedModel != "gpt-4.1" {
+		t.Fatalf("saved model = %q, want gpt-4.1", savedModel)
+	}
+	if providerSaveCalled {
+		t.Fatal("provider save callback should not be called without active provider")
+	}
+}
+
+func TestMgmt_ProjectModel_ReturnsErrorWhenModelSaveFails(t *testing.T) {
+	agent := &stubModelModeAgent{
+		model: "gpt-4.1-mini",
+		providers: []ProviderConfig{
+			{
+				Name:   "openai",
+				Model:  "gpt-4.1-mini",
+				Models: []ModelOption{{Name: "gpt-4.1", Alias: "gpt"}, {Name: "gpt-4.1-mini", Alias: "mini"}},
+			},
+		},
+	}
+	e := NewEngine("test-project", agent, nil, "", LangEnglish)
+	e.SetModelSaveFunc(func(model string) error {
+		return errors.New("disk full")
+	})
+
+	mgmt := NewManagementServer(0, "tok", nil)
+	mgmt.RegisterEngine("test-project", e)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/projects/", mgmt.wrap(mgmt.handleProjectRoutes))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	r := mgmtPost(t, ts.URL+"/api/v1/projects/test-project/model", "tok", map[string]string{"model": "gpt-4.1"})
+	if r.OK {
+		t.Fatal("update model unexpectedly succeeded")
+	}
+	if !strings.Contains(r.Error, "disk full") {
+		t.Fatalf("error = %q, want save failure", r.Error)
+	}
+	if got := agent.GetModel(); got != "gpt-4.1-mini" {
+		t.Fatalf("GetModel() = %q, want unchanged gpt-4.1-mini", got)
+	}
 }

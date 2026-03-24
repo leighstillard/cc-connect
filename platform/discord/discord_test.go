@@ -1,6 +1,12 @@
 package discord
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,9 +19,10 @@ import (
 // ── Thread tests (upstream) ──────────────────────────────────
 
 type fakeThreadOps struct {
-	resolveChannel func(channelID string) (*discordgo.Channel, error)
-	startThread    func(channelID, messageID, name string, archiveDuration int) (*discordgo.Channel, error)
-	joinThread     func(threadID string) error
+	resolveChannel        func(channelID string) (*discordgo.Channel, error)
+	startThread           func(channelID, messageID, name string, archiveDuration int) (*discordgo.Channel, error)
+	startStandaloneThread func(channelID, name string, typ discordgo.ChannelType, archiveDuration int) (*discordgo.Channel, error)
+	joinThread            func(threadID string) error
 }
 
 func (f fakeThreadOps) ResolveChannel(channelID string) (*discordgo.Channel, error) {
@@ -30,6 +37,13 @@ func (f fakeThreadOps) StartThread(channelID, messageID, name string, archiveDur
 		return nil, nil
 	}
 	return f.startThread(channelID, messageID, name, archiveDuration)
+}
+
+func (f fakeThreadOps) StartStandaloneThread(channelID, name string, typ discordgo.ChannelType, archiveDuration int) (*discordgo.Channel, error) {
+	if f.startStandaloneThread == nil {
+		return nil, nil
+	}
+	return f.startStandaloneThread(channelID, name, typ, archiveDuration)
 }
 
 func (f fakeThreadOps) JoinThread(threadID string) error {
@@ -159,6 +173,222 @@ func TestReconstructReplyCtx_ThreadSessionKey(t *testing.T) {
 	}
 }
 
+func TestResolveCronReplyTarget_CreatesStandaloneThread(t *testing.T) {
+	ops := fakeThreadOps{
+		resolveChannel: func(channelID string) (*discordgo.Channel, error) {
+			return &discordgo.Channel{ID: channelID, Type: discordgo.ChannelTypeGuildText}, nil
+		},
+	}
+
+	var (
+		startChannelID string
+		startName      string
+		startType      discordgo.ChannelType
+		joinedThread   string
+	)
+	ops.startStandaloneThread = func(channelID, name string, typ discordgo.ChannelType, archiveDuration int) (*discordgo.Channel, error) {
+		startChannelID = channelID
+		startName = name
+		startType = typ
+		if archiveDuration != 1440 {
+			t.Fatalf("archiveDuration = %d, want 1440", archiveDuration)
+		}
+		return &discordgo.Channel{ID: "thread-fresh", Type: discordgo.ChannelTypeGuildPublicThread}, nil
+	}
+	ops.joinThread = func(threadID string) error {
+		joinedThread = threadID
+		return nil
+	}
+
+	sessionKey, rc, err := resolveCronReplyTarget("discord:channel-1:user-1", "Daily sync", ops)
+	if err != nil {
+		t.Fatalf("resolveCronReplyTarget() error = %v", err)
+	}
+	if sessionKey != "discord:thread-fresh" {
+		t.Fatalf("sessionKey = %q, want discord:thread-fresh", sessionKey)
+	}
+	if rc.channelID != "thread-fresh" || rc.threadID != "thread-fresh" {
+		t.Fatalf("replyContext = %#v, want fresh thread routing", rc)
+	}
+	if startChannelID != "channel-1" {
+		t.Fatalf("startChannelID = %q, want channel-1", startChannelID)
+	}
+	if startName != "Daily sync" {
+		t.Fatalf("thread name = %q, want Daily sync", startName)
+	}
+	if startType != discordgo.ChannelTypeGuildPublicThread {
+		t.Fatalf("thread type = %v, want public thread", startType)
+	}
+	if joinedThread != "thread-fresh" {
+		t.Fatalf("joinedThread = %q, want thread-fresh", joinedThread)
+	}
+}
+
+func TestResolveCronReplyTarget_ReusesExistingThreadKey(t *testing.T) {
+	ops := fakeThreadOps{
+		resolveChannel: func(channelID string) (*discordgo.Channel, error) {
+			switch channelID {
+			case "thread-1":
+				return &discordgo.Channel{ID: "thread-1", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "channel-1"}, nil
+			case "channel-1":
+				return &discordgo.Channel{ID: "channel-1", Type: discordgo.ChannelTypeGuildText}, nil
+			default:
+				t.Fatalf("unexpected channel lookup %q", channelID)
+				return nil, nil
+			}
+		},
+	}
+
+	startChannelID := ""
+	ops.startStandaloneThread = func(channelID, name string, typ discordgo.ChannelType, archiveDuration int) (*discordgo.Channel, error) {
+		startChannelID = channelID
+		return &discordgo.Channel{ID: "thread-fresh-2", Type: discordgo.ChannelTypeGuildPublicThread}, nil
+	}
+
+	sessionKey, rc, err := resolveCronReplyTarget("discord:thread-1", "cron", ops)
+	if err != nil {
+		t.Fatalf("resolveCronReplyTarget() error = %v", err)
+	}
+	if sessionKey != "discord:thread-fresh-2" {
+		t.Fatalf("sessionKey = %q, want discord:thread-fresh-2", sessionKey)
+	}
+	if rc.threadID != "thread-fresh-2" {
+		t.Fatalf("replyContext = %#v, want thread-fresh-2", rc)
+	}
+	if startChannelID != "channel-1" {
+		t.Fatalf("startChannelID = %q, want channel-1", startChannelID)
+	}
+}
+
+func TestSendWithButtons_UsesFollowupComponents(t *testing.T) {
+	requests := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.Path)
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch {
+		case strings.Contains(r.URL.Path, "/messages/@original"):
+			if payload["content"] != "choose mode" {
+				t.Fatalf("original content = %#v, want choose mode", payload["content"])
+			}
+		case strings.Contains(r.URL.Path, "/webhooks/app-1/token-1"):
+			if payload["content"] != "choose mode" {
+				t.Fatalf("followup content = %#v, want choose mode", payload["content"])
+			}
+			components, ok := payload["components"].([]any)
+			if !ok || len(components) != 1 {
+				t.Fatalf("components = %#v, want one row", payload["components"])
+			}
+			row := components[0].(map[string]any)
+			rowComponents := row["components"].([]any)
+			if rowComponents[0].(map[string]any)["custom_id"] != "cmd:/mode default" {
+				t.Fatalf("button0 = %#v, want cmd:/mode default", rowComponents[0])
+			}
+			if rowComponents[1].(map[string]any)["custom_id"] != "cmd:/mode yolo" {
+				t.Fatalf("button1 = %#v, want cmd:/mode yolo", rowComponents[1])
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg-1","channel_id":"ch-1"}`)
+	}))
+	defer server.Close()
+
+	oldEndpointDiscord := discordgo.EndpointDiscord
+	oldEndpointAPI := discordgo.EndpointAPI
+	oldEndpointChannels := discordgo.EndpointChannels
+	oldEndpointWebhooks := discordgo.EndpointWebhooks
+	discordgo.EndpointDiscord = server.URL + "/"
+	discordgo.EndpointAPI = discordgo.EndpointDiscord + "api/v" + discordgo.APIVersion + "/"
+	discordgo.EndpointChannels = discordgo.EndpointAPI + "channels/"
+	discordgo.EndpointWebhooks = discordgo.EndpointAPI + "webhooks/"
+	defer func() {
+		discordgo.EndpointDiscord = oldEndpointDiscord
+		discordgo.EndpointAPI = oldEndpointAPI
+		discordgo.EndpointChannels = oldEndpointChannels
+		discordgo.EndpointWebhooks = oldEndpointWebhooks
+	}()
+
+	s, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("discordgo.New() error = %v", err)
+	}
+	s.Client = server.Client()
+
+	p := &Platform{session: s}
+	rc := &interactionReplyCtx{interaction: &discordgo.Interaction{AppID: "app-1", Token: "token-1"}}
+	err = p.SendWithButtons(context.Background(), rc, "choose mode", [][]core.ButtonOption{{
+		{Text: "Default", Data: "cmd:/mode default"},
+		{Text: "YOLO", Data: "cmd:/mode yolo"},
+	}})
+	if err != nil {
+		t.Fatalf("SendWithButtons() error = %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %v, want 2", requests)
+	}
+}
+
+func TestSendWithButtons_PreservesMultipleRows(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if strings.Contains(r.URL.Path, "/messages/@original") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"id":"msg-1","channel_id":"ch-1"}`)
+			return
+		}
+		components, ok := payload["components"].([]any)
+		if !ok || len(components) != 2 {
+			t.Fatalf("components = %#v, want two rows", payload["components"])
+		}
+		first := components[0].(map[string]any)["components"].([]any)
+		second := components[1].(map[string]any)["components"].([]any)
+		if first[0].(map[string]any)["custom_id"] != "cmd:/reasoning 1" || first[1].(map[string]any)["custom_id"] != "cmd:/reasoning 2" {
+			t.Fatalf("first row = %#v, want cmd:/reasoning 1 and 2", first)
+		}
+		if second[0].(map[string]any)["custom_id"] != "cmd:/reasoning 3" {
+			t.Fatalf("second row = %#v, want cmd:/reasoning 3", second)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg-2","channel_id":"ch-1"}`)
+	}))
+	defer server.Close()
+
+	oldEndpointDiscord := discordgo.EndpointDiscord
+	oldEndpointAPI := discordgo.EndpointAPI
+	oldEndpointChannels := discordgo.EndpointChannels
+	oldEndpointWebhooks := discordgo.EndpointWebhooks
+	discordgo.EndpointDiscord = server.URL + "/"
+	discordgo.EndpointAPI = discordgo.EndpointDiscord + "api/v" + discordgo.APIVersion + "/"
+	discordgo.EndpointChannels = discordgo.EndpointAPI + "channels/"
+	discordgo.EndpointWebhooks = discordgo.EndpointAPI + "webhooks/"
+	defer func() {
+		discordgo.EndpointDiscord = oldEndpointDiscord
+		discordgo.EndpointAPI = oldEndpointAPI
+		discordgo.EndpointChannels = oldEndpointChannels
+		discordgo.EndpointWebhooks = oldEndpointWebhooks
+	}()
+
+	s, err := discordgo.New("Bot test-token")
+	if err != nil {
+		t.Fatalf("discordgo.New() error = %v", err)
+	}
+	s.Client = server.Client()
+
+	p := &Platform{session: s}
+	rc := &interactionReplyCtx{interaction: &discordgo.Interaction{AppID: "app-1", Token: "token-1"}}
+	err = p.SendWithButtons(context.Background(), rc, "choose reasoning", [][]core.ButtonOption{
+		{{Text: "low", Data: "cmd:/reasoning 1"}, {Text: "medium", Data: "cmd:/reasoning 2"}},
+		{{Text: "high", Data: "cmd:/reasoning 3"}},
+	})
+	if err != nil {
+		t.Fatalf("SendWithButtons() error = %v", err)
+	}
+}
 // ── Dedup tests ──────────────────────────────────────────────
 
 // simulateHandlerCall mimics the dedup + dispatch logic in the MessageCreate
@@ -303,6 +533,37 @@ func TestDuplicateMessage_MultipleDuplicateBursts(t *testing.T) {
 	}
 	if len(received) != 10 {
 		t.Errorf("got %d unique messages, want 10", len(received))
+	}
+}
+
+// ── @everyone mention tests ──────────────────────────────────
+
+func TestIsDiscordBotMention_Everyone(t *testing.T) {
+	tests := []struct {
+		name                       string
+		respondToAtEveryoneAndHere bool
+		mentionEveryone            bool
+		want                       bool
+	}{
+		{"enabled + @everyone", true, true, true},
+		{"disabled + @everyone", false, true, false},
+		{"enabled + no @everyone", true, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &discordgo.MessageCreate{
+				Message: &discordgo.Message{
+					MentionEveryone: tt.mentionEveryone,
+					Content:         "hello",
+					Author:          &discordgo.User{ID: "user1"},
+				},
+			}
+			got := isDiscordBotMention(m, "bot1", "", tt.respondToAtEveryoneAndHere)
+			if got != tt.want {
+				t.Errorf("isDiscordBotMention(respondToAtEveryoneAndHere=%v, MentionEveryone=%v) = %v, want %v",
+					tt.respondToAtEveryoneAndHere, tt.mentionEveryone, got, tt.want)
+			}
+		})
 	}
 }
 

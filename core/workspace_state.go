@@ -2,11 +2,9 @@ package core
 
 import (
 	"log/slog"
-	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,12 +18,6 @@ func normalizeWorkspacePath(path string) string {
 	if err != nil {
 		return cleaned
 	}
-	if runtime.GOOS == "darwin" && strings.HasPrefix(resolved, "/private/") {
-		aliased := strings.TrimPrefix(resolved, "/private")
-		if _, err := os.Stat(aliased); err == nil {
-			resolved = aliased
-		}
-	}
 	if resolved != path {
 		slog.Debug("workspace path normalized", "original", path, "normalized", resolved)
 	}
@@ -34,11 +26,12 @@ func normalizeWorkspacePath(path string) string {
 
 // workspaceState holds the runtime state for a single workspace.
 type workspaceState struct {
-	mu           sync.Mutex
-	workspace    string
-	sessions     *SessionManager
-	agent        Agent
-	lastActivity time.Time
+	mu               sync.Mutex
+	workspace        string
+	sessions         *SessionManager
+	agent            Agent
+	lastActivity     time.Time
+	hasConnectedOnce atomic.Bool // first connection after (re)creation uses --continue
 }
 
 func newWorkspaceState(workspace string) *workspaceState {
