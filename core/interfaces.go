@@ -197,6 +197,15 @@ type Agent interface {
 	Stop() error
 }
 
+// FirstConnectionBridger is an optional interface for agents that support
+// bridging to the most recent CLI session on first connection. When the engine
+// detects a first-connection scenario, it calls BridgeSessionID(storedID) and
+// uses the returned value as the sessionID for StartSession. Agents that don't
+// implement this interface simply use the stored session ID as-is.
+type FirstConnectionBridger interface {
+	BridgeSessionID(storedID string) string
+}
+
 // AgentSession represents a running interactive agent session with a persistent process.
 type AgentSession interface {
 	// Send sends a user message (with optional images and files) to the running agent process.

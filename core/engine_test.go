@@ -3367,6 +3367,8 @@ type recordingStartAgent struct {
 
 func (a *recordingStartAgent) Name() string { return "recording-start" }
 
+func (a *recordingStartAgent) BridgeSessionID(_ string) string { return ContinueSession }
+
 func (a *recordingStartAgent) StartSession(_ context.Context, id string) (AgentSession, error) {
 	a.mu.Lock()
 	a.startIDs = append(a.startIDs, id)
@@ -3961,7 +3963,8 @@ type stubStartSessionAgent struct {
 	mu       sync.Mutex
 }
 
-func (a *stubStartSessionAgent) Name() string { return "stub" }
+func (a *stubStartSessionAgent) Name() string                    { return "stub" }
+func (a *stubStartSessionAgent) BridgeSessionID(_ string) string { return ContinueSession }
 func (a *stubStartSessionAgent) StartSession(_ context.Context, sessionID string) (AgentSession, error) {
 	a.mu.Lock()
 	a.calls = append(a.calls, sessionID)

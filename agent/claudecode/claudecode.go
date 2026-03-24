@@ -229,6 +229,14 @@ func (a *Agent) SetSessionEnv(env []string) {
 	a.sessionEnv = env
 }
 
+// BridgeSessionID implements core.FirstConnectionBridger. On first connection
+// after engine startup, it returns ContinueSession so that Claude Code picks up
+// the most recent CLI session via --continue --fork-session, creating an
+// independent context branch that won't interleave with an active CLI session.
+func (a *Agent) BridgeSessionID(_ string) string {
+	return core.ContinueSession
+}
+
 func (a *Agent) SetPlatformPrompt(prompt string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
