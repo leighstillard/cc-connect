@@ -452,6 +452,17 @@ func (e *Engine) SetLanguageSaveFunc(fn func(Language) error) {
 	e.i18n.SetSaveFunc(fn)
 }
 
+// findObserverTarget returns the first platform that implements ObserverTarget,
+// or nil if none do.
+func (e *Engine) findObserverTarget() ObserverTarget {
+	for _, p := range e.platforms {
+		if ot, ok := p.(ObserverTarget); ok {
+			return ot
+		}
+	}
+	return nil
+}
+
 func (e *Engine) SetProviderSaveFunc(fn func(providerName string) error) {
 	e.providerSaveFunc = fn
 }
@@ -1006,6 +1017,8 @@ func (e *Engine) Start() error {
 	if len(startErrs) == len(e.platforms) && len(e.platforms) > 0 {
 		return startErrs[0] // Return first error
 	}
+
+	e.startObserver()
 	return nil
 }
 
@@ -1016,6 +1029,10 @@ func (e *Engine) Stop() error {
 
 	// Cancel first so late lifecycle callbacks observe shutdown immediately.
 	e.cancel()
+
+	if e.observeCancel != nil {
+		e.observeCancel()
+	}
 
 	// Stop platforms after cancellation so they can unwind against the closed context.
 	var errs []error
