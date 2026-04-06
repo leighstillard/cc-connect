@@ -379,6 +379,12 @@ type NativeCommandProvider interface {
 	NativeCommands() []SlashCommandSpec
 }
 
+// ManifestSyncer is an optional interface that platforms can implement to
+// support dynamic slash command registration.
+type ManifestSyncer interface {
+	SyncManifest(ctx context.Context, commands []SlashCommandSpec) error
+}
+
 // SessionDeleter is an optional interface for agents that support deleting sessions.
 type SessionDeleter interface {
 	DeleteSession(ctx context.Context, sessionID string) error

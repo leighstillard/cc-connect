@@ -213,9 +213,10 @@ type Engine struct {
 	quietMu sync.RWMutex
 	quiet   bool // when true, suppress thinking and tool progress messages globally
 
-	platformLifecycleMu sync.Mutex
-	platformReady       map[Platform]bool
-	stopping            bool
+	platformLifecycleMu   sync.Mutex
+	platformReady         map[Platform]bool
+	pendingManifestErrors sync.Map // platform name -> user-visible error message
+	stopping              bool
 
 	// /web command callbacks
 	webSetupFunc  func() (port int, token string, needRestart bool, err error)
@@ -1191,6 +1192,23 @@ func (e *Engine) initPlatformCapabilities(p Platform) {
 		}
 	}
 
+	if syncer, ok := p.(ManifestSyncer); ok {
+		commands := e.DiscoverManifestCommands()
+		go func(platform Platform, specs []SlashCommandSpec) {
+			if err := syncer.SyncManifest(e.ctx, specs); err != nil {
+				slog.Warn("manifest sync failed", "project", e.name, "platform", platform.Name(), "error", err)
+				errMsg := e.i18n.Tf(MsgManifestSyncFailed, err.Error())
+				var syncErr *ManifestSyncError
+				if errors.As(err, &syncErr) && syncErr.Kind == ManifestSyncErrorTokenExpired && syncErr.AppID != "" {
+					errMsg = e.i18n.Tf(MsgManifestTokenExpired, syncErr.AppID)
+				}
+				e.pendingManifestErrors.Store(platform.Name(), errMsg)
+			} else {
+				e.pendingManifestErrors.Delete(platform.Name())
+			}
+		}(p, commands)
+	}
+
 	if nav, ok := p.(CardNavigable); ok {
 		nav.SetCardNavigationHandler(e.handleCardNav)
 	}
@@ -1284,6 +1302,12 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	// Resolve aliases: check if the first word (or whole content) matches an alias
 	content = e.resolveAlias(content)
 	msg.Content = content
+
+	if errMsg, ok := e.pendingManifestErrors.LoadAndDelete(p.Name()); ok {
+		if text, ok := errMsg.(string); ok && text != "" {
+			e.send(p, msg.ReplyCtx, text)
+		}
+	}
 
 	// Rate limit check (per-user role-based, then global fallback)
 	if !e.checkRateLimit(msg) {

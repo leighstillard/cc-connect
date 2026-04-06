@@ -296,6 +296,17 @@ level = "info" # debug, info, warn, error
 # 配置均通过 CLI 参数，无需在此文件中设置。
 
 # =============================================================================
+# Slack Manifest Sync / Slack Manifest 同步
+# =============================================================================
+# Optional: dynamically register Slack slash commands via the App Manifest API.
+# 可选：通过 App Manifest API 动态注册 Slack slash 命令。
+#
+# [slack_manifest]
+# app_id = "A0..."               # Slack app ID / Slack 应用 ID
+# config_token = "xoxe.xoxp-..." # App Configuration Token / 应用配置访问令牌
+# refresh_token = "xoxe-..."     # App Configuration Refresh Token / 应用配置刷新令牌
+
+# =============================================================================
 # Custom Skills (Slash Commands) / 自定义命令
 # =============================================================================
 # Define reusable prompt templates as global slash commands (available in all projects).

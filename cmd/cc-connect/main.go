@@ -162,12 +162,18 @@ func main() {
 
 		var platforms []core.Platform
 		for _, pc := range proj.Platforms {
-			opts := make(map[string]any, len(pc.Options)+2)
+			opts := make(map[string]any, len(pc.Options)+6)
 			for k, v := range pc.Options {
 				opts[k] = v
 			}
 			opts["cc_data_dir"] = cfg.DataDir
 			opts["cc_project"] = proj.Name
+			if cfg.SlackManifest != nil && cfg.SlackManifest.AppID != "" {
+				opts["manifest_app_id"] = cfg.SlackManifest.AppID
+				opts["manifest_config_token"] = cfg.SlackManifest.ConfigToken
+				opts["manifest_refresh_token"] = cfg.SlackManifest.RefreshToken
+				opts["manifest_data_dir"] = cfg.DataDir
+			}
 			p, err := core.CreatePlatform(pc.Type, opts)
 			if err != nil {
 				slog.Error("failed to create platform", "project", proj.Name, "type", pc.Type, "error", err)

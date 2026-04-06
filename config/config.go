@@ -28,6 +28,7 @@ type Config struct {
 	Language          string                  `toml:"language"` // "en" or "zh", default is "en"
 	Speech            SpeechConfig            `toml:"speech"`
 	TTS               TTSConfig               `toml:"tts"`
+	SlackManifest     *SlackManifestConfig    `toml:"slack_manifest,omitempty"`
 	Display           DisplayConfig           `toml:"display"`
 	StreamPreview     StreamPreviewConfig     `toml:"stream_preview"`      // real-time streaming preview
 	RateLimit         RateLimitConfig         `toml:"rate_limit"`          // per-session rate limiting
@@ -169,6 +170,13 @@ type TTSConfig struct {
 		BaseURL string `toml:"base_url"`
 		Model   string `toml:"model"`
 	} `toml:"minimax"`
+}
+
+// SlackManifestConfig configures optional Slack App Manifest sync.
+type SlackManifestConfig struct {
+	AppID        string `toml:"app_id"`
+	ConfigToken  string `toml:"config_token"`
+	RefreshToken string `toml:"refresh_token"`
 }
 
 // HeartbeatConfig controls periodic heartbeat for a project.

@@ -61,12 +61,6 @@
         "should_escape": false
       },
       {
-        "command": "/search",
-        "description": "Search sessions by name or ID",
-        "usage_hint": "<keyword>",
-        "should_escape": false
-      },
-      {
         "command": "/history",
         "description": "Show last n messages",
         "usage_hint": "[n]",
@@ -98,11 +92,6 @@
         "command": "/quiet",
         "description": "Toggle thinking and tool progress display",
         "usage_hint": "[global]",
-        "should_escape": false
-      },
-      {
-        "command": "/status",
-        "description": "Show system status",
         "should_escape": false
       },
       {

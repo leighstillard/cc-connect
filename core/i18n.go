@@ -167,6 +167,8 @@ const (
 	MsgCcHelpCommandTitle        MsgKey = "cc_help_command_title"
 	MsgCcHelpCommandUsage        MsgKey = "cc_help_command_usage"
 	MsgHelpCcGateway             MsgKey = "help_cc_gateway"
+	MsgManifestSyncFailed        MsgKey = "manifest_sync_failed"
+	MsgManifestTokenExpired      MsgKey = "manifest_token_expired"
 	MsgUnknownCommand            MsgKey = "unknown_command"
 	MsgHelp                      MsgKey = "message_help" // change from "help", which is used now for builtin command help
 	MsgHelpTitle                 MsgKey = "help_title"
@@ -472,6 +474,7 @@ const (
 	MsgBuiltinCmdName      MsgKey = "name"
 	MsgBuiltinCmdCurrent   MsgKey = "current"
 	MsgBuiltinCmdHistory   MsgKey = "history"
+	MsgBuiltinCmdBtw       MsgKey = "btw"
 	MsgBuiltinCmdProvider  MsgKey = "provider"
 	MsgBuiltinCmdMemory    MsgKey = "memory"
 	MsgBuiltinCmdAllow     MsgKey = "allow"
@@ -483,6 +486,7 @@ const (
 	MsgBuiltinCmdCompress  MsgKey = "compress"
 	MsgBuiltinCmdStop      MsgKey = "stop"
 	MsgBuiltinCmdCron      MsgKey = "cron"
+	MsgBuiltinCmdHeartbeat MsgKey = "heartbeat"
 	MsgBuiltinCmdCommands  MsgKey = "commands"
 	MsgBuiltinCmdAlias     MsgKey = "alias"
 	MsgBuiltinCmdSkills    MsgKey = "skills"
@@ -498,6 +502,9 @@ const (
 	MsgBuiltinCmdBind      MsgKey = "bind"
 	MsgBuiltinCmdShell     MsgKey = "shell"
 	MsgBuiltinCmdDir       MsgKey = "dir"
+	MsgBuiltinCmdTTS       MsgKey = "tts"
+	MsgBuiltinCmdWorkspace MsgKey = "workspace"
+	MsgBuiltinCmdWhoami    MsgKey = "whoami"
 
 	MsgDirChanged          MsgKey = "dir_changed"
 	MsgDirCurrent          MsgKey = "dir_current"
@@ -882,6 +889,20 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "%s 的原生命令可透過 `/cc` 使用。使用 `/cc help` 瀏覽它們。",
 		LangJapanese:           "%s のネイティブコマンドは `/cc` から利用できます。`/cc help` で一覧できます。",
 		LangSpanish:            "Los comandos nativos de %s están disponibles mediante `/cc`. Usa `/cc help` para verlos.",
+	},
+	MsgManifestSyncFailed: {
+		LangEnglish:            "Slash command sync failed: %s",
+		LangChinese:            "斜杠命令同步失败: %s",
+		LangTraditionalChinese: "斜杠命令同步失敗: %s",
+		LangJapanese:           "スラッシュコマンドの同期に失敗しました: %s",
+		LangSpanish:            "La sincronización de comandos falló: %s",
+	},
+	MsgManifestTokenExpired: {
+		LangEnglish:            "App Configuration Token expired. Regenerate it at https://api.slack.com/apps/%s",
+		LangChinese:            "应用配置令牌已过期。请在 https://api.slack.com/apps/%s 重新生成",
+		LangTraditionalChinese: "應用配置令牌已過期。請在 https://api.slack.com/apps/%s 重新產生",
+		LangJapanese:           "アプリ設定トークンの有効期限が切れました。https://api.slack.com/apps/%s で再生成してください",
+		LangSpanish:            "El token de configuración expiró. Regénéralo en https://api.slack.com/apps/%s",
 	},
 	MsgUnknownCommand: {
 		LangEnglish:            "`%s` is not a cc-connect command, forwarding to agent...",
@@ -3193,6 +3214,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangJapanese:           "直近 n 件のメッセージを表示、引数: [n]（デフォルト 10）",
 		LangSpanish:            "Mostrar últimos n mensajes, arg: [n] (por defecto 10)",
 	},
+	MsgBuiltinCmdBtw: {
+		LangEnglish:            "Add context to the current turn while it is busy, arg: <message>",
+		LangChinese:            "在当前轮次忙碌时追加上下文，参数: <消息>",
+		LangTraditionalChinese: "在當前輪次忙碌時追加上下文，參數: <訊息>",
+		LangJapanese:           "処理中の現在ターンに文脈を追加、引数: <メッセージ>",
+		LangSpanish:            "Agregar contexto al turno actual mientras procesa, arg: <mensaje>",
+	},
 	MsgBuiltinCmdProvider: {
 		LangEnglish:            "Manage API providers, arg: [list|add|remove|switch|clear]",
 		LangChinese:            "管理 API Provider，参数: [list|add|remove|switch|clear]",
@@ -3269,6 +3297,13 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "管理定時任務，參數: [add|list|del|enable|disable]",
 		LangJapanese:           "スケジュールタスク管理、引数: [add|list|del|enable|disable]",
 		LangSpanish:            "Gestionar tareas programadas, arg: [add|list|del|enable|disable]",
+	},
+	MsgBuiltinCmdHeartbeat: {
+		LangEnglish:            "Manage heartbeat, arg: [status|pause|resume|run|interval <mins>]",
+		LangChinese:            "管理心跳，参数: [status|pause|resume|run|interval <分钟>]",
+		LangTraditionalChinese: "管理心跳，參數: [status|pause|resume|run|interval <分鐘>]",
+		LangJapanese:           "ハートビート管理、引数: [status|pause|resume|run|interval <分>]",
+		LangSpanish:            "Gestionar heartbeat, arg: [status|pause|resume|run|interval <minutos>]",
 	},
 	MsgBuiltinCmdCommands: {
 		LangEnglish:            "Manage custom slash commands, arg: [add|del]",
@@ -3374,6 +3409,27 @@ var messages = map[MsgKey]map[Language]string{
 		LangTraditionalChinese: "查看、切換或重置 Agent 工作目錄，參數: <路徑>",
 		LangJapanese:           "エージェントの作業ディレクトリを表示/変更/リセット、引数: <パス>",
 		LangSpanish:            "Ver, cambiar o restablecer el directorio de trabajo del agente, arg: <ruta>",
+	},
+	MsgBuiltinCmdTTS: {
+		LangEnglish:            "View or switch text-to-speech mode, arg: [always|voice_only]",
+		LangChinese:            "查看或切换语音合成模式，参数: [always|voice_only]",
+		LangTraditionalChinese: "查看或切換語音合成模式，參數: [always|voice_only]",
+		LangJapanese:           "音声合成モードを表示/切り替え、引数: [always|voice_only]",
+		LangSpanish:            "Ver o cambiar modo de síntesis de voz, arg: [always|voice_only]",
+	},
+	MsgBuiltinCmdWorkspace: {
+		LangEnglish:            "Manage workspaces, arg: [bind|route|init|unbind|list|shared]",
+		LangChinese:            "管理工作区，参数: [bind|route|init|unbind|list|shared]",
+		LangTraditionalChinese: "管理工作區，參數: [bind|route|init|unbind|list|shared]",
+		LangJapanese:           "ワークスペース管理、引数: [bind|route|init|unbind|list|shared]",
+		LangSpanish:            "Gestionar workspaces, arg: [bind|route|init|unbind|list|shared]",
+	},
+	MsgBuiltinCmdWhoami: {
+		LangEnglish:            "Show your User ID",
+		LangChinese:            "显示你的 User ID",
+		LangTraditionalChinese: "顯示你的 User ID",
+		LangJapanese:           "あなたの User ID を表示",
+		LangSpanish:            "Mostrar tu User ID",
 	},
 	MsgDirChanged: {
 		LangEnglish:            "✅ Work directory changed to: `%s`\nThe next session will start in this directory.",

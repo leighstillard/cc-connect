@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +44,8 @@ type Platform struct {
 	channelNameCache      map[string]string
 	channelCacheMu        sync.RWMutex
 	userNameCache         sync.Map // userID -> display name
+	manifestTokenMgr      *TokenManager
+	manifestAPIBase       string
 }
 
 func New(opts map[string]any) (core.Platform, error) {
@@ -53,12 +57,49 @@ func New(opts map[string]any) (core.Platform, error) {
 	if botToken == "" || appToken == "" {
 		return nil, fmt.Errorf("slack: bot_token and app_token are required")
 	}
+
+	var manifestTokenMgr *TokenManager
+	manifestAPIBase, _ := opts["manifest_api_base"].(string)
+	if appID, _ := opts["manifest_app_id"].(string); appID != "" {
+		dataDir, _ := opts["manifest_data_dir"].(string)
+		if dataDir == "" {
+			dataDir, _ = opts["cc_data_dir"].(string)
+		}
+		if dataDir == "" {
+			home, _ := os.UserHomeDir()
+			if home != "" {
+				dataDir = filepath.Join(home, ".cc-connect")
+			} else {
+				dataDir = ".cc-connect"
+			}
+		}
+
+		manifestTokenMgr = NewTokenManager(dataDir, appID)
+		manifestTokenMgr.apiBase = manifestAPIBase
+		if _, err := manifestTokenMgr.Load(); err != nil {
+			configToken, _ := opts["manifest_config_token"].(string)
+			refreshToken, _ := opts["manifest_refresh_token"].(string)
+			if configToken != "" && refreshToken != "" {
+				if err := manifestTokenMgr.Save(&ManifestTokens{
+					AppID:        appID,
+					AccessToken:  configToken,
+					RefreshToken: refreshToken,
+					ExpiresAt:    time.Now().Add(12 * time.Hour).UTC(),
+				}); err != nil {
+					return nil, fmt.Errorf("slack: seed manifest token file: %w", err)
+				}
+			}
+		}
+	}
+
 	return &Platform{
 		botToken:              botToken,
 		appToken:              appToken,
 		allowFrom:             allowFrom,
 		shareSessionInChannel: shareSessionInChannel,
 		channelNameCache:      make(map[string]string),
+		manifestTokenMgr:      manifestTokenMgr,
+		manifestAPIBase:       manifestAPIBase,
 	}, nil
 }
 
@@ -441,6 +482,7 @@ func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttach
 }
 
 var _ core.ImageSender = (*Platform)(nil)
+var _ core.ManifestSyncer = (*Platform)(nil)
 
 func (p *Platform) downloadSlackFile(url string) ([]byte, error) {
 	if url == "" {
