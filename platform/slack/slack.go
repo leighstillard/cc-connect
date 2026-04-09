@@ -439,9 +439,24 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	return nil
 }
 
-// Send sends a new message (or threaded reply if rctx has timestamp).
-// Patched 2026-05-03: use thread_ts when present so replies in Slack Assistant
-// Chat tab land in the right thread (not the History tab feed).
+// Send posts a message into the channel on the reply context, threading it
+// off rc.timestamp when one is present.
+//
+// In cc-connect's normal Slack flow every triggering user message has its
+// ts captured into replyContext.timestamp, so this effectively threads the
+// entire conversation (final reply, streaming progress, tool-use noise,
+// errors, notifications) under the user's original message. That is the
+// desired shape:
+//
+//   - One thread per conversation, keeping the main channel quiet.
+//   - Tool-call noise and progress updates stay contained inside the thread.
+//   - Parallel conversations in the same channel naturally fork into
+//     separate threads without any per-session book-keeping beyond the
+//     session key that already carries the channel + user.
+//
+// For genuinely standalone posts (slash commands with no message ts,
+// bot-initiated notifications with ReconstructReplyCtx) rc.timestamp is
+// empty and Send falls back to a non-threaded post.
 func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	rc, ok := rctx.(replyContext)
 	if !ok {
@@ -452,8 +467,9 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 		slack.MsgOptionText(core.MarkdownToSlackMrkdwn(content), false),
 	}
 	if rc.timestamp != "" {
-		opts = append(opts, slack.MsgOptionPostMessageParameters(slack.PostMessageParameters{ThreadTimestamp: rc.timestamp}))
+		opts = append(opts, slack.MsgOptionTS(rc.timestamp))
 	}
+
 	_, _, err := p.client.PostMessageContext(ctx, rc.channel, opts...)
 	if err != nil {
 		return fmt.Errorf("slack: send: %w", err)
