@@ -461,6 +461,19 @@ func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttach
 }
 
 var _ core.ImageSender = (*Platform)(nil)
+var _ core.ObserverTarget = (*Platform)(nil)
+
+// SendObservation implements core.ObserverTarget for terminal session observation.
+func (p *Platform) SendObservation(ctx context.Context, channelID, text string) error {
+	_, _, err := p.client.PostMessageContext(ctx, channelID,
+		slack.MsgOptionText(text, false),
+		slack.MsgOptionDisableLinkUnfurl(),
+	)
+	if err != nil {
+		return fmt.Errorf("slack: send observation: %w", err)
+	}
+	return nil
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Progress writer (compact style)
