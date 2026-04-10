@@ -539,6 +539,20 @@ func main() {
 				"project", proj.Name, "default_minutes", defaultResetOnIdleMins)
 		}
 
+		// Wire thread-aware session routing.
+		// Enabled by default (max_concurrent = 3) when the [threads] section is present
+		// or the binary is built with Slack support.  Can be disabled by setting
+		// max_concurrent = 1, which prevents forking but still dedups client_msg_id.
+		{
+			maxConcurrent := 3
+			if cfg.Threads.MaxConcurrent != nil {
+				maxConcurrent = *cfg.Threads.MaxConcurrent
+			}
+			if maxConcurrent > 0 {
+				engine.SetThreadRouter(core.NewThreadRouter(maxConcurrent))
+			}
+		}
+
 		// Wire sender injection
 		if proj.InjectSender != nil {
 			engine.SetInjectSender(*proj.InjectSender)
