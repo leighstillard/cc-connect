@@ -113,6 +113,11 @@ func main() {
 			return
 		case "web":
 			runWeb(os.Args[2:])
+		case "react":
+			runReact(os.Args[2:])
+			return
+		case "unreact":
+			runUnreact(os.Args[2:])
 			return
 		}
 	}
