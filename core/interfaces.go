@@ -107,6 +107,15 @@ This sends a message to the target bot and waits for its response (printed to st
 The conversation is visible in the group chat and each bot maintains its own relay session.
 
 Environment variables CC_PROJECT and CC_SESSION_KEY are already set, so the relay knows which group chat to use.
+
+### Emoji reactions
+To add or remove an emoji reaction on a Slack message, use:
+
+  cc-connect react --emoji white_check_mark --channel C0AL12WCNBG --ts 1775870955.961349
+  cc-connect unreact --emoji white_check_mark --channel C0AL12WCNBG --ts 1775870955.961349
+
+--channel and --ts are required. --emoji is the Slack short name without colons.
+If the Slack message context provides channel_id and thread_ts, those can be used directly.
 `
 }
 
@@ -124,6 +133,13 @@ type SystemPromptSupporter interface {
 // a stop function that the caller must invoke when processing ends.
 type TypingIndicator interface {
 	StartTyping(ctx context.Context, replyCtx any) (stop func())
+}
+
+// Reactor is an optional interface for platforms that support adding and
+// removing emoji reactions on messages.
+type Reactor interface {
+	AddReaction(ctx context.Context, channel, ts, emoji string) error
+	RemoveReaction(ctx context.Context, channel, ts, emoji string) error
 }
 
 // ImageSender is an optional interface for platforms that support sending images.

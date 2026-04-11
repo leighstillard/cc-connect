@@ -464,6 +464,26 @@ func (e *Engine) AddPlatform(p Platform) {
 	e.platforms = append(e.platforms, p)
 }
 
+// React adds an emoji reaction to a message on the first platform that supports it.
+func (e *Engine) React(ctx context.Context, channel, ts, emoji string) error {
+	for _, p := range e.platforms {
+		if r, ok := p.(Reactor); ok {
+			return r.AddReaction(ctx, channel, ts, emoji)
+		}
+	}
+	return ErrNotSupported
+}
+
+// Unreact removes an emoji reaction from a message on the first platform that supports it.
+func (e *Engine) Unreact(ctx context.Context, channel, ts, emoji string) error {
+	for _, p := range e.platforms {
+		if r, ok := p.(Reactor); ok {
+			return r.RemoveReaction(ctx, channel, ts, emoji)
+		}
+	}
+	return ErrNotSupported
+}
+
 func (e *Engine) SetCronScheduler(cs *CronScheduler) {
 	e.cronScheduler = cs
 }

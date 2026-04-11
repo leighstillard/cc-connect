@@ -68,6 +68,12 @@ func main() {
 		case "weixin":
 			runWeixin(os.Args[2:])
 			return
+		case "react":
+			runReact(os.Args[2:])
+			return
+		case "unreact":
+			runUnreact(os.Args[2:])
+			return
 		}
 	}
 
