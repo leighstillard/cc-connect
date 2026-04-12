@@ -124,8 +124,7 @@ func newClaudeSession(ctx context.Context, workDir, model, sessionID, mode strin
 		}
 	}
 
-	cmd := core.BuildSpawnCommand(sessionCtx, spawnOpts, "claude", args...)
-	cmd.Dir = workDir
+	cmd := core.BuildSpawnCommandInDir(sessionCtx, spawnOpts, workDir, "claude", args...)
 	// Filter out CLAUDECODE env var to prevent "nested session" detection,
 	// since cc-connect is a bridge, not a nested Claude Code session.
 	env := filterEnv(os.Environ(), "CLAUDECODE")
