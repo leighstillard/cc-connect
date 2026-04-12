@@ -445,10 +445,3 @@ type CommandRegistrar interface {
 type ChannelNameResolver interface {
 	ResolveChannelName(channelID string) (string, error)
 }
-
-// Reactor is an optional interface for platforms that support adding and
-// removing emoji reactions to messages (e.g. Slack).
-type Reactor interface {
-	AddReaction(ctx context.Context, channel, ts, emoji string) error
-	RemoveReaction(ctx context.Context, channel, ts, emoji string) error
-}
