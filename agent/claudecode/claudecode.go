@@ -161,8 +161,10 @@ func New(opts map[string]any) (core.Agent, error) {
 	// Disallowing them here is the cleanest way to enforce "cc-connect owns
 	// message delivery on every platform it bridges to". Per-project config
 	// can extend this list but cannot override it.
+	// Note: mcp__claude_ai_Slack is NOT blocked here because a PreToolUse hook
+	// (slack-guard.sh) guards write operations while allowing search/read.
+	// This gives agents access to Slack history for context.
 	disallowedTools := []string{
-		"mcp__claude_ai_Slack",
 		"mcp__claude_ai_Gmail",
 		"mcp__claude_ai_Google_Calendar",
 	}
