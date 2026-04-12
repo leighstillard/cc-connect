@@ -2187,33 +2187,28 @@ func (e *Engine) drainStaleResumeResult(agentSession AgentSession, agent Agent, 
 			}
 			switch event.Type {
 			case EventResult:
-				// Stale result consumed. Save session ID and check if process is still alive.
+				// Stale result consumed. The resumed process may exit shortly after
+				// replaying, so always start a fresh session instead of trying to
+				// reuse it. Save the session ID first for context continuity.
 				if event.SessionID != "" {
 					session.SetAgentSessionID(event.SessionID, agent.Name())
 					sessions.Save()
 				}
-				slog.Info("interactive: drained stale resume result",
+				slog.Info("interactive: drained stale resume result, starting fresh",
 					"session_key", sessionKey, "session_id", event.SessionID)
-				if !agentSession.Alive() {
-					// Process exited after replaying — start fresh.
-					slog.Info("interactive: process exited after stale result, starting fresh",
-						"session_key", sessionKey)
-					agentSession.Close()
-					session.CompareAndSetAgentSessionID("", agent.Name())
-					fresh, err := agent.StartSession(e.ctx, "")
-					if err != nil {
-						slog.Error("interactive: failed to start fresh session",
-							"session_key", sessionKey, "error", err)
-						return agentSession
-					}
-					if newID := fresh.CurrentSessionID(); newID != "" {
-						if session.CompareAndSetAgentSessionID(newID, agent.Name()) {
-							sessions.Save()
-						}
-					}
-					return fresh
+				agentSession.Close()
+				fresh, err := agent.StartSession(e.ctx, "")
+				if err != nil {
+					slog.Error("interactive: failed to start fresh session after stale drain",
+						"session_key", sessionKey, "error", err)
+					return agentSession // return closed session; caller handles nil check
 				}
-				return agentSession
+				if newID := fresh.CurrentSessionID(); newID != "" {
+					if session.CompareAndSetAgentSessionID(newID, agent.Name()) {
+						sessions.Save()
+					}
+				}
+				return fresh
 			default:
 				// Unexpected content before we sent anything — shouldn't happen,
 				// but return the session and let the normal flow handle it.
