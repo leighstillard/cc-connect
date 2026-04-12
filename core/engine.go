@@ -8971,12 +8971,17 @@ func (e *Engine) InjectPrompt(sessionKey, prompt string) error {
 	}
 
 	session := e.sessions.GetOrCreateActive(sessionKey)
-	if !session.TryLock() {
-		return fmt.Errorf("session busy, prompt not delivered")
-	}
 
-	go e.processInteractiveMessage(targetPlatform, msg, session)
-	return nil
+	// Retry with backoff — the session may be mid-turn when the trigger fires.
+	const maxAttempts = 30
+	for i := 0; i < maxAttempts; i++ {
+		if session.TryLock() {
+			go e.processInteractiveMessage(targetPlatform, msg, session)
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("session busy after %d seconds, prompt not delivered", maxAttempts*2)
 }
 
 // PostToNewThread posts a message directly to a platform channel as a new
