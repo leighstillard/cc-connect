@@ -2910,6 +2910,45 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		return state
 	}
 
+	// Check for a pending fork — if armed, use the fork prefix so the agent
+	// starts with --resume <base_id> --fork-session instead of a plain resume.
+	if forkID := session.ConsumeForkOnNextStart(); forkID != "" {
+		startSessionID := ResumeForkPrefix + forkID
+		isResume := true
+		startAt := time.Now()
+		agentSession, err := agent.StartSession(e.ctx, startSessionID)
+		startElapsed := time.Since(startAt)
+		if err != nil {
+			slog.Error("fork session failed, falling back to fresh session",
+				"session_key", sessionKey, "fork_source", forkID, "error", err)
+			agentSession, err = agent.StartSession(e.ctx, "")
+			isResume = false
+		}
+		if err != nil {
+			slog.Error("failed to start session after fork failure", "error", err)
+			state = &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+			e.interactiveStates[sessionKey] = state
+			return state
+		}
+		if newID := agentSession.CurrentSessionID(); newID != "" {
+			if session.CompareAndSetAgentSessionID(newID, agent.Name()) {
+				sessions.Save()
+			}
+		}
+		if isResume {
+			agentSession = e.drainStaleResumeResult(agentSession, agent, session, sessions, sessionKey)
+		}
+		state = &interactiveState{
+			agentSession: agentSession,
+			platform:     p,
+			replyCtx:     replyCtx,
+			quiet:        quietMode,
+		}
+		e.interactiveStates[sessionKey] = state
+		slog.Info("session spawned (fork)", "session_key", sessionKey, "fork_source", forkID, "elapsed", startElapsed)
+		return state
+	}
+
 	// Resume only when we have a concrete saved agent session ID. If the session
 	// is unbound, force a fresh start instead of attaching to whichever CLI
 	// conversation happens to be "latest" in this workspace.
