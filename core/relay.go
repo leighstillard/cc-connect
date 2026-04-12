@@ -177,6 +177,7 @@ type RelayRequest struct {
 	To         string `json:"to"`          // target project name
 	SessionKey string `json:"session_key"` // source session key (contains platform + chatID)
 	Message    string `json:"message"`
+	Channel    string `json:"channel,omitempty"` // target workspace channel key (e.g. "C0ALZC59C8Z")
 }
 
 // RelayResponse is the result of a relay send.
@@ -233,7 +234,14 @@ func (rm *RelayManager) Send(ctx context.Context, req RelayRequest) (*RelayRespo
 	relayCtx, cancel := rm.relayContext(ctx)
 	defer cancel()
 
-	response, err := targetEngine.HandleRelay(relayCtx, req.From, chatID, "", req.Message)
+	// Build workspace channel key from the --channel flag if provided.
+	// HandleRelay uses this to resolve the correct workspace binding.
+	wsChannelKey := ""
+	if req.Channel != "" {
+		wsChannelKey = platform + ":" + req.Channel
+	}
+
+	response, err := targetEngine.HandleRelay(relayCtx, req.From, chatID, wsChannelKey, req.Message)
 	if err != nil {
 		return nil, fmt.Errorf("relay: %w", err)
 	}
