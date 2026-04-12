@@ -3057,7 +3057,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 // session is started. If no event arrives within the timeout, the session is
 // assumed clean and returned as-is.
 func (e *Engine) drainStaleResumeResult(agentSession AgentSession, agent Agent, session *Session, sessions *SessionManager, sessionKey string) AgentSession {
-	timer := time.NewTimer(3 * time.Second)
+	// Longer conversations take more time to replay on --resume before the
+	// stale EventResult arrives. 10 seconds handles most cases.
+	timer := time.NewTimer(10 * time.Second)
 	defer timer.Stop()
 
 	events := agentSession.Events()
