@@ -9615,9 +9615,7 @@ freshSession:
 // the channel during resume detection and need to replay it.
 type prefixedAgentSession struct {
 	AgentSession
-	prefixCh chan Event
-	merged   chan Event
-	once     sync.Once
+	merged chan Event
 }
 
 func newPrefixedAgentSession(inner AgentSession, first Event) *prefixedAgentSession {
