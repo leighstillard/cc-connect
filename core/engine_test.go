@@ -5541,10 +5541,11 @@ func (s *controllableAgentSession) GetContextUsage() *ContextUsage { return s.co
 func (s *controllableAgentSession) Alive() bool                    { return s.alive }
 func (s *controllableAgentSession) Close() error {
 	s.alive = false
-	close(s.events)
 	select {
 	case <-s.closed:
+		// already closed
 	default:
+		close(s.events)
 		close(s.closed)
 	}
 	return nil
