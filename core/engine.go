@@ -5861,6 +5861,91 @@ func (e *Engine) InjectPrompt(sessionKey, prompt string) error {
 	return fmt.Errorf("session busy after %d seconds, prompt not delivered", maxAttempts*2)
 }
 
+// DispatchToChannel injects a prompt into this engine's interactive session
+// for the given channel, with full multi-workspace routing. The agent processes
+// the message and responds in the target channel naturally.
+//
+// This is the fire-and-forget counterpart to HandleRelay: instead of running a
+// synchronous relay session and returning the response, it feeds the message
+// through the same interactive pipeline that handles normal Slack messages.
+func (e *Engine) DispatchToChannel(platformName, channelID, prompt string) error {
+	if prompt == "" {
+		return fmt.Errorf("dispatch: prompt is required")
+	}
+	if channelID == "" {
+		return fmt.Errorf("dispatch: channel is required")
+	}
+
+	// Find the platform
+	var targetPlatform Platform
+	for _, p := range e.platforms {
+		if p.Name() == platformName {
+			targetPlatform = p
+			break
+		}
+	}
+	if targetPlatform == nil {
+		return fmt.Errorf("dispatch: platform %q not found", platformName)
+	}
+
+	// Reconstruct reply context for the target channel
+	rc, ok := targetPlatform.(ReplyContextReconstructor)
+	if !ok {
+		return fmt.Errorf("dispatch: platform %q does not support reply context reconstruction", platformName)
+	}
+	sessionKey := platformName + ":" + channelID + ":dispatch"
+	replyCtx, err := rc.ReconstructReplyCtx(sessionKey)
+	if err != nil {
+		return fmt.Errorf("dispatch: reconstruct reply context: %w", err)
+	}
+
+	msg := &Message{
+		SessionKey: sessionKey,
+		Platform:   platformName,
+		UserID:     "dispatch",
+		UserName:   "dispatch",
+		Content:    prompt,
+		ReplyCtx:   replyCtx,
+	}
+
+	// Resolve workspace agent for multi-workspace mode
+	agent := e.agent
+	sessions := e.sessions
+	interactiveKey := sessionKey
+	resolvedWorkspace := ""
+
+	if e.multiWorkspace {
+		channelKey := workspaceChannelKey(platformName, channelID)
+		if b, _, usable := e.lookupEffectiveWorkspaceBinding(channelKey); usable {
+			wsAgent, wsSessions, wsErr := e.getOrCreateWorkspaceAgent(normalizeWorkspacePath(b.Workspace))
+			if wsErr == nil {
+				agent = wsAgent
+				sessions = wsSessions
+				resolvedWorkspace = b.Workspace
+				interactiveKey = resolvedWorkspace + ":" + sessionKey
+			} else {
+				slog.Warn("dispatch: workspace agent creation failed, using default",
+					"channel", channelID, "err", wsErr)
+			}
+		}
+	}
+
+	session := sessions.GetOrCreateActive(sessionKey)
+
+	// Retry with backoff — the session may be mid-turn.
+	const maxAttempts = 30
+	for i := 0; i < maxAttempts; i++ {
+		if session.TryLock() {
+			slog.Info("dispatch: injecting prompt",
+				"channel", channelID, "workspace", resolvedWorkspace)
+			go e.processInteractiveMessageWith(targetPlatform, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, sessionKey)
+			return nil
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("dispatch: session busy after %d seconds", maxAttempts*2)
+}
+
 // PostToNewThread posts a message directly to a platform channel as a new
 // top-level message, without requiring or using an existing interactive session.
 // This is intended for automated notifications (e.g. file-watcher alerts) that

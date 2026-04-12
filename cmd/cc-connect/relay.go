@@ -28,6 +28,7 @@ func runRelay(args []string) {
 
 func runRelaySend(args []string) {
 	var from, to, sessionKey, message, dataDir, channel string
+	var dispatch bool
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -57,6 +58,8 @@ func runRelaySend(args []string) {
 				i++
 				channel = args[i]
 			}
+		case "--dispatch", "-d":
+			dispatch = true
 		case "--data-dir":
 			if i+1 < len(args) {
 				i++
@@ -101,7 +104,7 @@ func runRelaySend(args []string) {
 		os.Exit(1)
 	}
 
-	relayBody := map[string]string{
+	relayBody := map[string]any{
 		"from":        from,
 		"to":          to,
 		"session_key": sessionKey,
@@ -109,6 +112,9 @@ func runRelaySend(args []string) {
 	}
 	if channel != "" {
 		relayBody["channel"] = channel
+	}
+	if dispatch {
+		relayBody["dispatch"] = true
 	}
 	payload, _ := json.Marshal(relayBody)
 
@@ -156,11 +162,15 @@ Options:
   -m, --message <text>       Message to send
   -c, --channel <channel_id> Target workspace channel (routes multi-workspace agents
                              to the correct repo directory via workspace bindings)
+  -d, --dispatch             Fire-and-forget: inject prompt into the target channel's
+                             interactive session. Agent works and responds in that
+                             channel naturally. Returns immediately. Requires --channel.
       --data-dir <path>      Data directory (default: ~/.cc-connect)
   -h, --help                 Show this help
 
 Examples:
   cc-connect relay send --to claude-bot "What's the weather today?"
   cc-connect relay send claude-bot What is the weather today
-  cc-connect relay send --to claude --channel C0ALZC59C8Z "review the latest PR"`)
+  cc-connect relay send --to claude --channel C0ALZC59C8Z "review the latest PR"
+  cc-connect relay send --to claude --channel C0AL785R0MV --dispatch "implement feature X"`)
 }
