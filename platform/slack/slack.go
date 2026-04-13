@@ -566,7 +566,13 @@ func (p *Platform) downloadSlackFile(url string) ([]byte, error) {
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
-	// slack:{channel}:{user}
+	// Handle both formats:
+	//   slack:{channel}:{user}
+	//   {workspace}:slack:{channel}:{user}
+	// Strip workspace prefix if present.
+	if idx := strings.Index(sessionKey, ":slack:"); idx >= 0 {
+		sessionKey = sessionKey[idx+1:] // strip workspace prefix, keep "slack:..."
+	}
 	parts := strings.SplitN(sessionKey, ":", 3)
 	if len(parts) < 2 || parts[0] != "slack" {
 		return nil, fmt.Errorf("slack: invalid session key %q", sessionKey)
