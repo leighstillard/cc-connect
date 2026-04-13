@@ -173,7 +173,7 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 					Files:       docFiles,
 					Audio:       audio,
 					MessageID:   ev.TimeStamp,
-					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: ev.TimeStamp},
+					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: threadTS},
 					ThreadID:    threadTS,
 					ClientMsgID: clientMsgID,
 				}
@@ -234,7 +234,7 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 					ChatName:    p.resolveChannelNameForMsg(ev.Channel),
 					Content:     ev.Text, Images: images, Files: docFiles, Audio: audio,
 					MessageID:   ts,
-					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: ts},
+					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: threadTS},
 					ThreadID:    threadTS,
 					ClientMsgID: ev.ClientMsgID,
 				}
