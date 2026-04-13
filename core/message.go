@@ -145,7 +145,7 @@ type Message struct {
 	UserName   string
 	ChatName   string // human-readable chat/group name (optional)
 	Content    string
-	Images     []ImageAttachment // attached images (if any)
+	Images          []ImageAttachment   // attached images (if any)
 	Files           []FileAttachment    // attached files (if any)
 	Audio           *AudioAttachment    // voice message (if any)
 	Location        *LocationAttachment // geographical location (if any)
