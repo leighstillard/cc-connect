@@ -138,25 +138,26 @@ type LocationAttachment struct {
 
 // Message represents a unified incoming message from any platform.
 type Message struct {
-	SessionKey string // unique key for user context, e.g. "feishu:{chatID}:{userID}"
-	Platform   string
-	MessageID  string // platform message ID for tracing
-	UserID     string
-	UserName   string
-	ChatName   string // human-readable chat/group name (optional)
-	Content    string
-	Images          []ImageAttachment   // attached images (if any)
-	Files           []FileAttachment    // attached files (if any)
-	Audio           *AudioAttachment    // voice message (if any)
-	Location        *LocationAttachment // geographical location (if any)
-	ExtraContent    string              // platform-enriched content (e.g. location text, reply quote) prepended for the agent
-	ChannelKey      string              // platform-provided channel identifier for workspace binding (optional)
-	ReplyCtx        any                 // platform-specific context needed for replying
-	FromVoice       bool                // true if message originated from voice transcription
-	ModeOverride    string              // if set, temporarily override agent permission mode for this message
-	PlatformContext string              // optional platform-specific context block prepended to the agent prompt (e.g. Slack channel/thread metadata)
-	ThreadID        string              // platform thread identifier for thread-aware session routing (e.g. Slack thread_ts)
-	ClientMsgID     string              // client-generated message ID for deduplication (e.g. Slack client_msg_id)
+	SessionKey         string              // unique key for user context, e.g. "feishu:{chatID}:{userID}"
+	Platform           string
+	MessageID          string              // platform message ID for tracing
+	UserID             string
+	UserName           string
+	ChatName           string              // human-readable chat/group name (optional)
+	Content            string
+	Images             []ImageAttachment   // attached images (if any)
+	Files              []FileAttachment    // attached files (if any)
+	Audio              *AudioAttachment    // voice message (if any)
+	Location           *LocationAttachment // geographical location (if any)
+	ExtraContent       string              // platform-enriched content (e.g. location text, reply quote) prepended for the agent
+	ChannelKey         string              // platform-provided channel identifier for workspace binding (optional)
+	ReplyCtx           any                 // platform-specific context needed for replying
+	FromVoice          bool                // true if message originated from voice transcription
+	ModeOverride       string              // if set, temporarily override agent permission mode for this message
+	PlatformContext    string              // optional platform-specific context block prepended to the agent prompt (e.g. Slack channel/thread metadata)
+	ThreadID           string              // platform thread identifier for thread-aware session routing (e.g. Slack thread_ts)
+	ClientMsgID        string              // client-generated message ID for deduplication (e.g. Slack client_msg_id)
+	PassthroughToAgent bool                // suppress unknown-command reply and forward slash commands to the agent
 }
 
 // EventType distinguishes different kinds of agent output.

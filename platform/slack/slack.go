@@ -27,6 +27,7 @@ func init() {
 type replyContext struct {
 	channel   string
 	timestamp string // thread_ts for threading replies
+	response  string // slash command response_url for replies when bot cannot post directly
 }
 
 type Platform struct {
@@ -155,6 +156,11 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 				}
 				images, audio, docFiles := p.processSlackFileShares(shareFiles)
 				content := stripAppMentionText(ev.Text)
+				wasBang := false
+				if converted, ok := convertBangPrefix(content); ok {
+					content = converted
+					wasBang = true
+				}
 				if content == "" && len(images) == 0 && audio == nil && len(docFiles) == 0 {
 					return
 				}
@@ -167,18 +173,19 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 				userName := p.resolveUserName(ev.User)
 				channelName := p.resolveChannelNameForMsg(ev.Channel)
 				msg := &core.Message{
-					SessionKey:      sessionKey, Platform: "slack",
-					UserID:          ev.User, UserName: userName,
-					ChatName:        channelName,
-					Content:         content,
-					Images:          images,
-					Files:           docFiles,
-					Audio:           audio,
-					MessageID:       ev.TimeStamp,
-					ReplyCtx:        replyContext{channel: ev.Channel, timestamp: threadTS},
-					PlatformContext: slackMessageContext(ev.Channel, channelName, ev.User, userName, ev.TimeStamp, ev.ThreadTimeStamp),
-					ThreadID:        threadTS,
-					ClientMsgID:     clientMsgID,
+					SessionKey:         sessionKey, Platform: "slack",
+					UserID:             ev.User, UserName: userName,
+					ChatName:           channelName,
+					Content:            content,
+					Images:             images,
+					Files:              docFiles,
+					Audio:              audio,
+					MessageID:          ev.TimeStamp,
+					ReplyCtx:           replyContext{channel: ev.Channel, timestamp: threadTS},
+					PlatformContext:    slackMessageContext(ev.Channel, channelName, ev.User, userName, ev.TimeStamp, ev.ThreadTimeStamp),
+					ThreadID:           threadTS,
+					ClientMsgID:        clientMsgID,
+					PassthroughToAgent: wasBang,
 				}
 				p.handler(p, msg)
 
@@ -220,7 +227,14 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 
 				images, audio, docFiles := p.processSlackFileShares(ev.Files)
 
-				if ev.Text == "" && len(images) == 0 && audio == nil && len(docFiles) == 0 {
+				content := ev.Text
+				wasBang := false
+				if converted, ok := convertBangPrefix(content); ok {
+					content = converted
+					wasBang = true
+				}
+
+				if content == "" && len(images) == 0 && audio == nil && len(docFiles) == 0 {
 					return
 				}
 
@@ -234,15 +248,16 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 				userName := p.resolveUserName(ev.User)
 				channelName := p.resolveChannelNameForMsg(ev.Channel)
 				msg := &core.Message{
-					SessionKey:      sessionKey, Platform: "slack",
-					UserID:          ev.User, UserName: userName,
-					ChatName:        channelName,
-					Content:         ev.Text, Images: images, Files: docFiles, Audio: audio,
-					MessageID:       ts,
-					ReplyCtx:        replyContext{channel: ev.Channel, timestamp: threadTS},
-					PlatformContext: slackMessageContext(ev.Channel, channelName, ev.User, userName, ts, ev.ThreadTimeStamp),
-					ThreadID:        threadTS,
-					ClientMsgID:     ev.ClientMsgID,
+					SessionKey:         sessionKey, Platform: "slack",
+					UserID:             ev.User, UserName: userName,
+					ChatName:           channelName,
+					Content:            content, Images: images, Files: docFiles, Audio: audio,
+					MessageID:          ts,
+					ReplyCtx:           replyContext{channel: ev.Channel, timestamp: threadTS},
+					PlatformContext:    slackMessageContext(ev.Channel, channelName, ev.User, userName, ts, ev.ThreadTimeStamp),
+					ThreadID:           threadTS,
+					ClientMsgID:        ev.ClientMsgID,
+					PassthroughToAgent: wasBang,
 				}
 				p.handler(p, msg)
 			}
@@ -279,10 +294,10 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 		}
 
 		msg := &core.Message{
-			SessionKey: sessionKey, Platform: "slack",
-			UserID: cmd.UserID, UserName: cmd.UserName,
+			SessionKey:      sessionKey, Platform: "slack",
+			UserID:          cmd.UserID, UserName: cmd.UserName,
 			Content:         content,
-			ReplyCtx:        replyContext{channel: cmd.ChannelID},
+			ReplyCtx:        replyContext{channel: cmd.ChannelID, response: cmd.ResponseURL},
 			PlatformContext: slackMessageContext(cmd.ChannelID, cmd.ChannelName, cmd.UserID, cmd.UserName, "", ""),
 		}
 		slog.Debug("slack: slash command", "command", cmd.Command, "text", cmd.Text, "user", cmd.UserID)
@@ -319,6 +334,13 @@ func stripAppMentionText(text string) string {
 		return strings.TrimSpace(text[idx+2:])
 	}
 	return text
+}
+
+func convertBangPrefix(content string) (string, bool) {
+	if len(content) > 1 && content[0] == '!' && content[1] != ' ' {
+		return "/" + content[1:], true
+	}
+	return content, false
 }
 
 // parseSlackInnerEventFiles extracts the files array from a raw Events API inner
@@ -428,6 +450,9 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	if !ok {
 		return fmt.Errorf("slack: invalid reply context type %T", rctx)
 	}
+	if rc.response != "" {
+		return postResponseURL(ctx, rc.response, content, rc.timestamp)
+	}
 
 	opts := []slack.MsgOption{
 		slack.MsgOptionText(content, false),
@@ -465,6 +490,9 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	rc, ok := rctx.(replyContext)
 	if !ok {
 		return fmt.Errorf("slack: invalid reply context type %T", rctx)
+	}
+	if rc.response != "" {
+		return postResponseURL(ctx, rc.response, content, "")
 	}
 
 	opts := []slack.MsgOption{
@@ -905,6 +933,36 @@ func (p *Platform) RemoveReaction(ctx context.Context, channel, ts, emoji string
 func (p *Platform) Stop() error {
 	if p.cancel != nil {
 		p.cancel()
+	}
+	return nil
+}
+
+func postResponseURL(ctx context.Context, responseURL, content, threadTS string) error {
+	payload := map[string]any{
+		"text":          content,
+		"response_type": "in_channel",
+	}
+	if threadTS != "" {
+		payload["thread_ts"] = threadTS
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("slack: marshal response_url payload: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, responseURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("slack: create response_url request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+
+	resp, err := core.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("slack: response_url request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("slack: response_url status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
 }
