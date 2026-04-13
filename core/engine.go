@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1310,9 +1311,18 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
-	// Resolve aliases: check if the first word (or whole content) matches an alias
+	// Resolve aliases on user text BEFORE merging ExtraContent, so reply
+	// quotes and platform context survive alias resolution (PR #420 fix).
 	content = e.resolveAlias(content)
-	msg.Content = content
+	if msg.ExtraContent != "" {
+		if content == "" {
+			msg.Content = msg.ExtraContent
+		} else {
+			msg.Content = msg.ExtraContent + "\n" + content
+		}
+	} else {
+		msg.Content = content
+	}
 
 	// Rate limit check (per-user role-based, then global fallback)
 	if !e.checkRateLimit(msg) {
@@ -2053,6 +2063,21 @@ func (e *Engine) getOrCreateWorkspaceAgent(workspace string) (Agent, *SessionMan
 }
 
 // getOrCreateInteractiveStateWith accepts an optional agent override for multi-workspace mode.
+// adoptPendingFromPlaceholder copies pendingMessages from an existing placeholder
+// state to newState so queued messages are not lost when the map entry is replaced.
+// Must be called under interactiveMu.
+func adoptPendingFromPlaceholder(existing, newState *interactiveState) {
+	if existing == nil || existing == newState {
+		return
+	}
+	existing.mu.Lock()
+	if len(existing.pendingMessages) > 0 {
+		newState.pendingMessages = existing.pendingMessages
+		existing.pendingMessages = nil
+	}
+	existing.mu.Unlock()
+}
+
 // When agentOverride is non-nil it is used instead of e.agent to start the session.
 // ccSessionKey, when non-empty, is used for CC_SESSION_KEY env injection; otherwise sessionKey is used.
 func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, replyCtx any, session *Session, sessions *SessionManager, agentOverride Agent, ccSessionKey string) *interactiveState {
@@ -2137,7 +2162,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 	// Check if context is already canceled (e.g. during shutdown/restart)
 	if e.ctx.Err() != nil {
 		slog.Debug("skipping session start: context canceled", "session_key", sessionKey)
-		state = &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+		newState := &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+		adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
+		state = newState
 		e.interactiveStates[sessionKey] = state
 		return state
 	}
@@ -2205,7 +2232,9 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		}
 		if err != nil {
 			slog.Error("failed to start interactive session", "error", err, "elapsed", startElapsed)
-			state = &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+			newState := &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+			adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
+			state = newState
 			e.interactiveStates[sessionKey] = state
 			return state
 		}
@@ -2229,12 +2258,14 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		agentSession = e.drainStaleResumeResult(agentSession, agent, session, sessions, sessionKey)
 	}
 
-	state = &interactiveState{
+	newState := &interactiveState{
 		agentSession: agentSession,
 		platform:     p,
 		replyCtx:     replyCtx,
 		quiet:        quietMode,
 	}
+	adoptPendingFromPlaceholder(e.interactiveStates[sessionKey], newState)
+	state = newState
 	e.interactiveStates[sessionKey] = state
 
 	slog.Info("session spawned", "session_key", sessionKey, "agent_session", session.GetAgentSessionID(), "is_resume", isResume, "elapsed", startElapsed)
@@ -3044,6 +3075,7 @@ var builtinCommands = []struct {
 	{[]string{"search", "find"}, "search"},
 	{[]string{"shell", "sh", "exec", "run"}, "shell"},
 	{[]string{"dir", "cd", "chdir", "workdir"}, "dir"},
+	{[]string{"diff"}, "diff"},
 	{[]string{"tts"}, "tts"},
 	{[]string{"workspace", "ws"}, "workspace"},
 	{[]string{"whoami", "myid"}, "whoami"},
@@ -3230,6 +3262,8 @@ func (e *Engine) handleCommand(p Platform, msg *Message, raw string) bool {
 		e.cmdShell(p, msg, raw)
 	case "dir":
 		e.cmdDir(p, msg, args)
+	case "diff":
+		e.cmdDiff(p, msg, raw)
 	case "tts":
 		e.cmdTTS(p, msg, args)
 	case "workspace":
@@ -3797,6 +3831,118 @@ func (e *Engine) cmdShell(p Platform, msg *Message, raw string) {
 	}()
 }
 
+func (e *Engine) cmdDiff(p Platform, msg *Message, raw string) {
+	// Parse optional target: /diff [target]
+	diffTarget := ""
+	if strings.HasPrefix(strings.ToLower(raw), "/diff ") {
+		diffTarget = strings.TrimSpace(raw[6:])
+	}
+
+	if strings.HasPrefix(diffTarget, "-") {
+		e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgError), "diff target must not start with '-'"))
+		return
+	}
+
+	// Resolve working directory (same pattern as cmdShell)
+	var workDir string
+	if e.multiWorkspace {
+		channelKey := effectiveWorkspaceChannelKey(msg)
+		if b, _, usable := e.lookupEffectiveWorkspaceBinding(channelKey); usable {
+			workDir = normalizeWorkspacePath(b.Workspace)
+		}
+	}
+	if workDir == "" {
+		if wd, ok := e.agent.(interface{ GetWorkDir() string }); ok {
+			workDir = wd.GetWorkDir()
+		}
+	}
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(e.ctx, 60*time.Second)
+		defer cancel()
+
+		// Get current branch name and short commit ID
+		branchCmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+		branchCmd.Dir = workDir
+		branchOut, _ := branchCmd.Output()
+		currentBranch := strings.TrimSpace(string(branchOut))
+		if currentBranch == "" {
+			currentBranch = "unknown"
+		}
+
+		commitCmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+		commitCmd.Dir = workDir
+		commitOut, _ := commitCmd.Output()
+		commitID := strings.TrimSpace(string(commitOut))
+		if commitID == "" {
+			commitID = "0000000"
+		}
+
+		gitArgs := []string{"diff"}
+		if diffTarget != "" {
+			gitArgs = append(gitArgs, "--", diffTarget)
+		}
+		gitCmd := exec.CommandContext(ctx, "git", gitArgs...)
+		gitCmd.Dir = workDir
+		diffOutput, err := gitCmd.Output()
+
+		if ctx.Err() == context.DeadlineExceeded {
+			e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgCommandTimeout), "git diff"))
+			return
+		}
+		if err != nil && len(diffOutput) == 0 {
+			e.reply(p, msg.ReplyCtx, e.i18n.Tf(MsgError, err))
+			return
+		}
+
+		target := diffTarget
+		if target == "" {
+			target = "HEAD"
+		}
+		if len(strings.TrimSpace(string(diffOutput))) == 0 {
+			e.reply(p, msg.ReplyCtx, fmt.Sprintf(e.i18n.T(MsgDiffEmpty), target))
+			return
+		}
+
+		// Try diff2html + FileSender
+		if fileSender, ok := p.(FileSender); ok {
+			title := fmt.Sprintf("%s vs %s", currentBranch, target)
+			htmlData, err := e.diff2html(ctx, diffOutput, workDir, title)
+			if err == nil {
+				fileName := fmt.Sprintf("%s-%s.html", currentBranch, commitID)
+				_ = e.waitOutgoing(p)
+				if err := fileSender.SendFile(e.ctx, msg.ReplyCtx, FileAttachment{
+					MimeType: "text/html", Data: htmlData, FileName: fileName,
+				}); err == nil {
+					return
+				}
+			}
+			if errors.Is(err, exec.ErrNotFound) {
+				e.reply(p, msg.ReplyCtx, e.i18n.T(MsgDiffNoDiff2HTML))
+			}
+		}
+
+		// Fallback: plain text diff
+		result := strings.TrimSpace(string(diffOutput))
+		if runes := []rune(result); len(runes) > 4000 {
+			result = string(runes[:3997]) + "..."
+		}
+		e.reply(p, msg.ReplyCtx, "```diff\n"+result+"\n```")
+	}()
+}
+
+func (e *Engine) diff2html(ctx context.Context, diff []byte, workDir, title string) ([]byte, error) {
+	if _, err := exec.LookPath("diff2html"); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "diff2html", "-i", "stdin", "-o", "stdout", "--title", title)
+	cmd.Dir = workDir
+	cmd.Stdin = bytes.NewReader(diff)
+	return cmd.Output()
+}
 // dirApply applies /dir mutations (same semantics as cmdDir). sessionKey is used for GetOrCreateActive.
 // On failure returns a non-empty errMsg; on success returns ("", successMsg) for plain-text replies.
 func (e *Engine) dirApply(agent Agent, sessions *SessionManager, interactiveKey, sessionKey string, args []string) (errMsg, successMsg string) {
@@ -6472,6 +6618,14 @@ func drainEvents(ch <-chan Event) {
 			return
 		}
 	}
+}
+
+// waitOutgoing blocks on the per-platform outgoing rate limiter when enabled.
+func (e *Engine) waitOutgoing(p Platform) error {
+	if e.outgoingRL == nil {
+		return nil
+	}
+	return e.outgoingRL.Wait(e.ctx, p.Name())
 }
 
 // reply wraps p.Reply with error logging and slow-operation warnings.
@@ -9892,6 +10046,14 @@ func workspaceChannelKey(platformName, channelID string) string {
 
 func extractWorkspaceChannelKey(sessionKey string) string {
 	return workspaceChannelKey(extractPlatformName(sessionKey), extractChannelID(sessionKey))
+}
+
+// effectiveWorkspaceChannelKey returns the workspace binding key from a Message.
+func effectiveWorkspaceChannelKey(msg *Message) string {
+	if msg.ChannelKey != "" {
+		return workspaceChannelKey(msg.Platform, msg.ChannelKey)
+	}
+	return extractWorkspaceChannelKey(msg.SessionKey)
 }
 
 // commandContext resolves the appropriate agent, session manager, and interactive key

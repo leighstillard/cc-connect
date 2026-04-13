@@ -2972,6 +2972,82 @@ func TestCmdStatus_UsesLegacyTextOnPlatformWithoutCardSupport(t *testing.T) {
 	}
 }
 
+func TestCmdQuiet_TogglesPerSessionQuiet(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	msg := &Message{SessionKey: "test:user1", ReplyCtx: "ctx"}
+
+	// First /quiet: creates interactiveState with quiet=true
+	e.cmdQuiet(p, msg, nil)
+	iKey := e.interactiveKeyForSessionKey(msg.SessionKey)
+	e.interactiveMu.Lock()
+	state := e.interactiveStates[iKey]
+	e.interactiveMu.Unlock()
+	if state == nil || !state.quiet {
+		t.Fatalf("after first /quiet: state=%v, want state with quiet=true", state)
+	}
+	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "Quiet mode ON") {
+		t.Fatalf("sent = %q, want quiet ON message", p.sent)
+	}
+
+	// Second /quiet: toggles quiet off
+	p.sent = nil
+	e.cmdQuiet(p, msg, nil)
+	state.mu.Lock()
+	quiet := state.quiet
+	state.mu.Unlock()
+	if quiet {
+		t.Fatalf("after second /quiet: quiet=%v, want false", quiet)
+	}
+	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "Quiet mode OFF") {
+		t.Fatalf("sent = %q, want quiet OFF message", p.sent)
+	}
+}
+
+func TestHandleMessage_ExtraContentPreservedThroughAlias(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	agent := &stubAgent{}
+	e := NewEngine("test", agent, []Platform{p}, "", LangEnglish)
+
+	e.aliasMu.Lock()
+	e.aliases["hi"] = "hello world"
+	e.aliasMu.Unlock()
+
+	msg := &Message{
+		SessionKey:   "test:user1",
+		ReplyCtx:     "ctx",
+		Content:      "hi",
+		ExtraContent: "> quoted reply context",
+		Platform:     "test",
+		UserID:       "user1",
+	}
+
+	e.handleMessage(p, msg)
+
+	if !strings.Contains(msg.Content, "> quoted reply context") {
+		t.Fatalf("ExtraContent lost after alias resolution: msg.Content = %q", msg.Content)
+	}
+	if !strings.Contains(msg.Content, "hello world") {
+		t.Fatalf("alias not resolved: msg.Content = %q", msg.Content)
+	}
+}
+
+func TestCmdDiff_RejectsDashTarget(t *testing.T) {
+	p := &stubPlatformEngine{n: "test"}
+	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
+	msg := &Message{SessionKey: "test:user1", ReplyCtx: "ctx", UserID: "admin1"}
+	e.SetAdminFrom("admin1")
+
+	e.handleCommand(p, msg, "/diff --output=/tmp/evil")
+
+	if len(p.sent) == 0 {
+		t.Fatal("expected error reply for dash target")
+	}
+	if !strings.Contains(p.sent[0], "must not start with '-'") {
+		t.Fatalf("sent = %q, want rejection of dash target", p.sent[0])
+	}
+}
+
 func TestCmdUsage_UnsupportedAgent(t *testing.T) {
 	p := &stubPlatformEngine{n: "plain"}
 	e := NewEngine("test", &stubAgent{}, []Platform{p}, "", LangEnglish)
