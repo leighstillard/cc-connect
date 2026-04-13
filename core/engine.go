@@ -208,6 +208,12 @@ type Engine struct {
 	observeSessionKey string             // e.g. "slack:C123:U456" — target for forwarding
 	observeCancel     context.CancelFunc
 
+	// Thread-aware session routing (nil = disabled, all messages share one session)
+	threadRouter *ThreadRouter
+	// threadInteractiveKeys maps interactiveKey → effectiveSessionKey so that
+	// cleanupInteractiveState can release thread router affinity for the correct key.
+	threadInteractiveKeys sync.Map
+
 	// Interactive agent session management
 	interactiveMu     sync.Mutex
 	interactiveStates map[string]*interactiveState // key = sessionKey
@@ -224,9 +230,6 @@ type Engine struct {
 
 	// Outgoing message rate limiter (per-platform token bucket)
 	outgoingRL *OutgoingRateLimiter
-
-	// Thread-aware session router
-	threadRouter *ThreadRouter
 
 	// Auto-reset idle sessions after this duration (0 = disabled)
 	resetOnIdle time.Duration
@@ -1411,35 +1414,53 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		interactiveKey = resolvedWorkspace + ":" + msg.SessionKey
 	}
 
-	// Thread-aware routing: resolve the effective session key for this thread.
-	// When the base session is busy and max_concurrent allows it, the router
-	// forks a new session key so threads can run in parallel.
+	// Thread-aware routing: resolve the effective session key for this message.
+	// This runs BEFORE the session lock so that messages route to the correct
+	// session rather than being queued against the wrong one.
 	effectiveSessionKey := msg.SessionKey
-	var forked bool
-	if e.threadRouter != nil && msg.ThreadID != "" {
-		rr := e.threadRouter.Route(msg.SessionKey, msg.ThreadID, sessions)
-		effectiveSessionKey = rr.EffectiveKey
-		forked = rr.Forked
-		if forked {
-			// Update interactiveKey to use the forked session key
-			if e.multiWorkspace && wsSessions != nil {
-				interactiveKey = resolvedWorkspace + ":" + rr.EffectiveKey
-			} else {
-				interactiveKey = rr.EffectiveKey
-			}
+	if e.threadRouter != nil {
+		// Drop "also send to channel" duplicates: Slack fires two events with
+		// the same client_msg_id when the user ticks "also send to #channel".
+		if msg.ClientMsgID != "" && e.threadRouter.IsDuplicateClientMsg(msg.ClientMsgID) {
+			slog.Debug("thread router: dropping duplicate client_msg_id",
+				"client_msg_id", msg.ClientMsgID,
+				"session", msg.SessionKey,
+			)
+			return
+		}
+
+		routeResult := e.threadRouter.Route(msg.SessionKey, msg.ThreadID, sessions)
+		effectiveSessionKey = routeResult.EffectiveKey
+		if routeResult.Forked {
+			slog.Info("thread router: forked new session for thread",
+				"thread_id", msg.ThreadID,
+				"session_key", effectiveSessionKey,
+			)
 			// Arm the forked session to use --fork-session from the base
 			// session's agent context, so the new thread starts with the
 			// same conversation history.
 			if baseSession := sessions.PeekActive(msg.SessionKey); baseSession != nil {
 				if baseAgentID := baseSession.GetAgentSessionID(); baseAgentID != "" {
-					forkedSession := sessions.GetOrCreateActive(rr.EffectiveKey)
+					forkedSession := sessions.GetOrCreateActive(routeResult.EffectiveKey)
 					forkedSession.SetForkOnNextStart(baseAgentID)
 				}
 			}
-			if rr.ForkWarning != "" {
-				e.reply(p, msg.ReplyCtx, rr.ForkWarning)
+			// Warn the user before starting the fork so they see it in their thread.
+			if routeResult.ForkWarning != "" {
+				e.reply(p, msg.ReplyCtx, routeResult.ForkWarning)
 			}
 		}
+
+		// Update interactiveKey to use the effective session key.
+		if e.multiWorkspace && wsSessions != nil {
+			interactiveKey = resolvedWorkspace + ":" + effectiveSessionKey
+		} else {
+			interactiveKey = effectiveSessionKey
+		}
+
+		// Register the interactiveKey → effectiveSessionKey mapping so that
+		// cleanupInteractiveState can release thread affinity on session expiry.
+		e.threadInteractiveKeys.Store(interactiveKey, effectiveSessionKey)
 	}
 
 	session := sessions.GetOrCreateActive(effectiveSessionKey)
@@ -1480,7 +1501,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		return
 	}
 
-	if rotated := e.maybeAutoResetSessionOnIdle(p, msg, sessions, interactiveKey, session); rotated != nil {
+	if rotated := e.maybeAutoResetSessionOnIdle(p, msg, sessions, interactiveKey, session, effectiveSessionKey); rotated != nil {
 		session = rotated
 	}
 
@@ -1493,15 +1514,17 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 		"platform", msg.Platform,
 		"user", msg.UserName,
 		"session", session.ID,
+		"thread_id", msg.ThreadID,
 	)
 
 	go e.processInteractiveMessageWith(p, msg, session, agent, sessions, interactiveKey, resolvedWorkspace, msg.SessionKey)
 }
 
-// maybeAutoResetSessionOnIdle checks whether the session has been idle longer
-// than resetOnIdle. If so, it gracefully closes the old session, creates a new
-// one, and returns it. If no reset is needed, it returns nil.
-func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions *SessionManager, interactiveKey string, session *Session) *Session {
+// maybeAutoResetSessionOnIdle rotates to a fresh session when the current one has
+// been idle for longer than resetOnIdle.  effectiveSessionKey is the (possibly
+// thread-routed) key that the session was looked up under; it defaults to
+// msg.SessionKey when thread routing is not active.
+func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions *SessionManager, interactiveKey string, session *Session, effectiveSessionKey string) *Session {
 	if e.resetOnIdle <= 0 || session == nil {
 		return nil
 	}
@@ -1518,7 +1541,7 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 	}
 
 	slog.Info("auto-resetting idle session",
-		"session_key", msg.SessionKey,
+		"session_key", effectiveSessionKey,
 		"session_id", session.ID,
 		"idle_for", time.Since(lastActive),
 		"threshold", e.resetOnIdle,
@@ -1541,9 +1564,9 @@ func (e *Engine) maybeAutoResetSessionOnIdle(p Platform, msg *Message, sessions 
 	e.cleanupInteractiveState(interactiveKey)
 	session.UnlockWithoutUpdate()
 
-	newSession := sessions.NewSession(msg.SessionKey, "")
+	newSession := sessions.NewSession(effectiveSessionKey, "")
 	if !newSession.TryLock() {
-		slog.Error("failed to lock new session after idle auto-reset", "session_key", msg.SessionKey, "new_session", newSession.ID)
+		slog.Error("failed to lock new session after idle auto-reset", "session_key", effectiveSessionKey, "new_session", newSession.ID)
 		return nil
 	}
 
@@ -2385,6 +2408,14 @@ func (e *Engine) cleanupInteractiveState(sessionKey string, expected ...*interac
 			}
 		case <-time.After(10 * time.Second):
 			slog.Error("agent session close timed out (10s), abandoning", "session", sessionKey)
+		}
+	}
+
+	// Release thread affinity for this session so future messages from the
+	// same thread re-route fresh (context-switch or fork) after session expiry.
+	if e.threadRouter != nil {
+		if effKey, loaded := e.threadInteractiveKeys.LoadAndDelete(sessionKey); loaded {
+			e.threadRouter.ReleaseSession(effKey.(string))
 		}
 	}
 }
@@ -6435,6 +6466,82 @@ func (e *Engine) PostToNewThread(sessionKey, message string, images []ImageAttac
 			return err
 		}
 	}
+	return nil
+}
+
+// InjectPromptToNewThread posts a thread anchor message first, then injects a
+// prompt whose responses will be threaded to that anchor. This combines --new-thread
+// and --as-prompt: the anchor is visible in the channel, and the agent processes
+// and responds within that thread.
+func (e *Engine) InjectPromptToNewThread(sessionKey, prompt string) error {
+	if prompt == "" {
+		return fmt.Errorf("prompt is required")
+	}
+
+	if sessionKey == "" {
+		e.interactiveMu.Lock()
+		for key := range e.interactiveStates {
+			sessionKey = key
+			break
+		}
+		e.interactiveMu.Unlock()
+		if sessionKey == "" {
+			return fmt.Errorf("no active session for --as-prompt --new-thread")
+		}
+	}
+
+	platformName := ""
+	if idx := strings.Index(sessionKey, ":"); idx > 0 {
+		platformName = sessionKey[:idx]
+	}
+
+	var targetPlatform Platform
+	for _, p := range e.platforms {
+		if p.Name() == platformName {
+			targetPlatform = p
+			break
+		}
+	}
+	if targetPlatform == nil {
+		return fmt.Errorf("platform %q not found for session key %q", platformName, sessionKey)
+	}
+
+	rc, ok := targetPlatform.(ReplyContextReconstructor)
+	if !ok {
+		return fmt.Errorf("platform %q does not support reply context reconstruction", platformName)
+	}
+
+	baseReplyCtx, err := rc.ReconstructReplyCtx(sessionKey)
+	if err != nil {
+		return fmt.Errorf("reconstruct reply context: %w", err)
+	}
+
+	// Post thread anchor and get threaded reply context
+	tap, ok := targetPlatform.(ThreadAnchorPoster)
+	if !ok {
+		return fmt.Errorf("platform %q does not support thread anchor posting", platformName)
+	}
+
+	threadedReplyCtx, err := tap.PostThreadAnchor(e.ctx, baseReplyCtx, prompt)
+	if err != nil {
+		return fmt.Errorf("post thread anchor: %w", err)
+	}
+
+	msg := &Message{
+		SessionKey: sessionKey,
+		Platform:   platformName,
+		UserID:     "trigger",
+		UserName:   "trigger",
+		Content:    prompt,
+		ReplyCtx:   threadedReplyCtx,
+	}
+
+	session := e.sessions.GetOrCreateActive(sessionKey)
+	if !session.TryLock() {
+		return fmt.Errorf("session busy, prompt not delivered")
+	}
+
+	go e.processInteractiveMessage(targetPlatform, msg, session)
 	return nil
 }
 

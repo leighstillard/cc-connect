@@ -41,6 +41,7 @@ type Platform struct {
 	channelNameCache      map[string]string
 	channelCacheMu        sync.RWMutex
 	userNameCache         sync.Map // userID -> display name
+	dedup                 core.MessageDedup
 }
 
 func New(opts map[string]any) (core.Platform, error) {
@@ -127,6 +128,11 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 					}
 				}
 
+				if p.dedup.IsDuplicate(ev.TimeStamp) {
+					slog.Debug("slack: ignoring duplicate app_mention", "ts", ev.TimeStamp)
+					return
+				}
+
 				slog.Debug("slack: app_mention received", "user", ev.User, "channel", ev.Channel)
 
 				if !core.AllowList(p.allowFrom, ev.User) {
@@ -161,18 +167,18 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 				userName := p.resolveUserName(ev.User)
 				channelName := p.resolveChannelNameForMsg(ev.Channel)
 				msg := &core.Message{
-					SessionKey:  sessionKey, Platform: "slack",
-					UserID:      ev.User, UserName: userName,
-					ChatName:    channelName,
-					Content:     content,
-					Images:      images,
-					Files:       docFiles,
-					Audio:       audio,
-					MessageID:   ev.TimeStamp,
-					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: ev.TimeStamp},
+					SessionKey:      sessionKey, Platform: "slack",
+					UserID:          ev.User, UserName: userName,
+					ChatName:        channelName,
+					Content:         content,
+					Images:          images,
+					Files:           docFiles,
+					Audio:           audio,
+					MessageID:       ev.TimeStamp,
+					ReplyCtx:        replyContext{channel: ev.Channel, timestamp: threadTS},
 					PlatformContext: slackMessageContext(ev.Channel, channelName, ev.User, userName, ev.TimeStamp, ev.ThreadTimeStamp),
-					ThreadID:    threadTS,
-					ClientMsgID: clientMsgID,
+					ThreadID:        threadTS,
+					ClientMsgID:     clientMsgID,
 				}
 				p.handler(p, msg)
 
@@ -190,6 +196,11 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 							}
 						}
 					}
+				}
+
+				if p.dedup.IsDuplicate(ev.TimeStamp) {
+					slog.Debug("slack: ignoring duplicate message", "ts", ev.TimeStamp)
+					return
 				}
 
 				slog.Debug("slack: message received", "user", ev.User, "channel", ev.Channel)
@@ -223,15 +234,15 @@ func (p *Platform) handleEvent(evt socketmode.Event) {
 				userName := p.resolveUserName(ev.User)
 				channelName := p.resolveChannelNameForMsg(ev.Channel)
 				msg := &core.Message{
-					SessionKey:  sessionKey, Platform: "slack",
-					UserID:      ev.User, UserName: userName,
-					ChatName:    channelName,
-					Content:     ev.Text, Images: images, Files: docFiles, Audio: audio,
-					MessageID:   ts,
-					ReplyCtx:    replyContext{channel: ev.Channel, timestamp: ts},
+					SessionKey:      sessionKey, Platform: "slack",
+					UserID:          ev.User, UserName: userName,
+					ChatName:        channelName,
+					Content:         ev.Text, Images: images, Files: docFiles, Audio: audio,
+					MessageID:       ts,
+					ReplyCtx:        replyContext{channel: ev.Channel, timestamp: threadTS},
 					PlatformContext: slackMessageContext(ev.Channel, channelName, ev.User, userName, ts, ev.ThreadTimeStamp),
-					ThreadID:    threadTS,
-					ClientMsgID: ev.ClientMsgID,
+					ThreadID:        threadTS,
+					ClientMsgID:     ev.ClientMsgID,
 				}
 				p.handler(p, msg)
 			}
@@ -470,6 +481,30 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	return nil
 }
 
+// PostThreadAnchor posts a message and returns a reply context that threads to it.
+// Implements core.ThreadAnchorPoster.
+func (p *Platform) PostThreadAnchor(ctx context.Context, rctx any, content string) (any, error) {
+	rc, ok := rctx.(replyContext)
+	if !ok {
+		return nil, fmt.Errorf("slack: invalid reply context type %T", rctx)
+	}
+
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(content, false),
+	}
+	// Post as top-level message (no thread_ts), even if rc has one
+
+	_, ts, err := p.client.PostMessageContext(ctx, rc.channel, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("slack: post thread anchor: %w", err)
+	}
+
+	// Return a new reply context that threads to the posted message
+	return replyContext{channel: rc.channel, timestamp: ts}, nil
+}
+
+var _ core.ThreadAnchorPoster = (*Platform)(nil)
+
 // SendImage uploads and sends an image to the channel.
 // Implements core.ImageSender.
 func (p *Platform) SendImage(ctx context.Context, rctx any, img core.ImageAttachment) error {
@@ -683,7 +718,13 @@ func (p *Platform) downloadSlackFile(url string) ([]byte, error) {
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
-	// slack:{channel}:{user}
+	// Handle both formats:
+	//   slack:{channel}:{user}
+	//   {workspace}:slack:{channel}:{user}
+	// Strip workspace prefix if present.
+	if idx := strings.Index(sessionKey, ":slack:"); idx >= 0 {
+		sessionKey = sessionKey[idx+1:] // strip workspace prefix, keep "slack:..."
+	}
 	parts := strings.SplitN(sessionKey, ":", 3)
 	if len(parts) < 2 || parts[0] != "slack" {
 		return nil, fmt.Errorf("slack: invalid session key %q", sessionKey)
