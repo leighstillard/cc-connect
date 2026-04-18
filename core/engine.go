@@ -6670,9 +6670,20 @@ func (e *Engine) InjectPromptToNewThread(sessionKey, prompt string) error {
 		return fmt.Errorf("platform %q does not support thread anchor posting", platformName)
 	}
 
-	threadedReplyCtx, err := tap.PostThreadAnchor(e.ctx, baseReplyCtx, prompt)
+	threadedReplyCtx, threadID, err := tap.PostThreadAnchor(e.ctx, baseReplyCtx, prompt)
 	if err != nil {
 		return fmt.Errorf("post thread anchor: %w", err)
+	}
+
+	// Determine the effective session key. When a thread router is configured
+	// and the platform returned a thread ID, allocate a forked session so this
+	// dispatch runs isolated from the base channel session, and pre-register
+	// the thread→forked affinity so later user replies in the new thread route
+	// back here instead of falling through to the base session.
+	effectiveKey := sessionKey
+	if e.threadRouter != nil && threadID != "" {
+		effectiveKey = ForkedKeyFor(sessionKey, threadID)
+		e.threadRouter.RegisterThread(sessionKey, threadID, effectiveKey)
 	}
 
 	msg := &Message{
@@ -6682,14 +6693,27 @@ func (e *Engine) InjectPromptToNewThread(sessionKey, prompt string) error {
 		UserName:   "trigger",
 		Content:    prompt,
 		ReplyCtx:   threadedReplyCtx,
+		ThreadID:   threadID,
 	}
 
-	session := e.sessions.GetOrCreateActive(sessionKey)
+	session := e.sessions.GetOrCreateActive(effectiveKey)
+
+	// Seed the forked session from the base session's agent context so the
+	// dispatched prompt starts with the same conversation history (mirrors
+	// the fork path in handleMessage).
+	if effectiveKey != sessionKey {
+		if baseSession := e.sessions.PeekActive(sessionKey); baseSession != nil {
+			if baseAgentID := baseSession.GetAgentSessionID(); baseAgentID != "" {
+				session.SetForkOnNextStart(baseAgentID)
+			}
+		}
+	}
+
 	if !session.TryLock() {
 		return fmt.Errorf("session busy, prompt not delivered")
 	}
 
-	go e.processInteractiveMessage(targetPlatform, msg, session)
+	go e.processInteractiveMessageWith(targetPlatform, msg, session, e.agent, e.sessions, effectiveKey, "", effectiveKey)
 	return nil
 }
 

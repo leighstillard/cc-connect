@@ -511,10 +511,10 @@ func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 
 // PostThreadAnchor posts a message and returns a reply context that threads to it.
 // Implements core.ThreadAnchorPoster.
-func (p *Platform) PostThreadAnchor(ctx context.Context, rctx any, content string) (any, error) {
+func (p *Platform) PostThreadAnchor(ctx context.Context, rctx any, content string) (any, string, error) {
 	rc, ok := rctx.(replyContext)
 	if !ok {
-		return nil, fmt.Errorf("slack: invalid reply context type %T", rctx)
+		return nil, "", fmt.Errorf("slack: invalid reply context type %T", rctx)
 	}
 
 	opts := []slack.MsgOption{
@@ -524,11 +524,12 @@ func (p *Platform) PostThreadAnchor(ctx context.Context, rctx any, content strin
 
 	_, ts, err := p.client.PostMessageContext(ctx, rc.channel, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("slack: post thread anchor: %w", err)
+		return nil, "", fmt.Errorf("slack: post thread anchor: %w", err)
 	}
 
-	// Return a new reply context that threads to the posted message
-	return replyContext{channel: rc.channel, timestamp: ts}, nil
+	// Return a new reply context that threads to the posted message.
+	// ts doubles as the thread_ts for replies within this thread.
+	return replyContext{channel: rc.channel, timestamp: ts}, ts, nil
 }
 
 var _ core.ThreadAnchorPoster = (*Platform)(nil)
