@@ -166,6 +166,34 @@ func (r *ThreadRouter) Route(baseKey, threadID string, sessions *SessionManager)
 	return RouteResult{EffectiveKey: baseKey}
 }
 
+// RegisterThread pre-registers a thread→effectiveKey affinity. Used by
+// InjectPromptToNewThread to bind a freshly-posted thread anchor to the
+// session that will process the injected prompt, so that subsequent user
+// replies in the new thread route to that session instead of falling
+// through to the base session or being forked as a stranger.
+//
+// If effectiveKey differs from baseKey it is recorded as a forked session.
+// If an affinity already exists for (baseKey, threadID), it is overwritten.
+func (r *ThreadRouter) RegisterThread(baseKey, threadID, effectiveKey string) {
+	if threadID == "" || effectiveKey == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tk := threadKey(baseKey, threadID)
+	r.threadToKey[tk] = effectiveKey
+	if effectiveKey != baseKey {
+		r.forkedKeys[effectiveKey] = forkedInfo{baseKey: baseKey, threadID: threadID}
+	}
+}
+
+// ForkedKeyFor returns the effective session key to use for a new forked
+// thread under baseKey. The key matches the format produced by Route() so
+// that registration and routing are consistent.
+func ForkedKeyFor(baseKey, threadID string) string {
+	return fmt.Sprintf("%s:t:%s", baseKey, shortThreadID(threadID))
+}
+
 // ReleaseSession removes routing state for effectiveSessionKey when its session
 // is cleaned up (idle timeout, explicit reset, etc.).
 // After this call, the next message on the owning thread will re-route as a new

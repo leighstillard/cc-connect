@@ -433,5 +433,8 @@ type ThreadAnchorPoster interface {
 	// PostThreadAnchor posts a message and returns a reply context that threads
 	// replies to the posted message. The returned context should be used for
 	// subsequent Send/Reply calls to keep them in the same thread.
-	PostThreadAnchor(ctx context.Context, replyCtx any, content string) (threadedReplyCtx any, err error)
+	// threadID is the platform-specific thread identifier (e.g. Slack thread_ts)
+	// of the newly posted anchor, used to register thread-affinity routing so
+	// subsequent user replies in the thread route back to the injected session.
+	PostThreadAnchor(ctx context.Context, replyCtx any, content string) (threadedReplyCtx any, threadID string, err error)
 }

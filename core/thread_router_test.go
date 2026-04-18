@@ -182,3 +182,43 @@ func TestThreadRouter_Isolation_SameThreadSameSession(t *testing.T) {
 	r2 := r.Route("slack:C1", "ts-1", sm)
 	assert.Equal(t, r1.EffectiveKey, r2.EffectiveKey, "same thread should use same session")
 }
+
+// Regression: InjectPromptToNewThread must register the new thread_ts with the
+// router so that later user replies in that thread route back to the injected
+// session, instead of falling through to the base (and landing on an unrelated
+// active thread's session — the incident reported 2026-04-18).
+func TestThreadRouter_RegisterThread_RoutesBackToForkedKey(t *testing.T) {
+	r := NewThreadRouter(3, false)
+	sm := newTestSessionManager()
+
+	baseKey := "slack:C1"
+	threadID := "ts-injected"
+	forkedKey := ForkedKeyFor(baseKey, threadID)
+
+	// Simulate InjectPromptToNewThread pre-registering the affinity before
+	// any user reply lands.
+	r.RegisterThread(baseKey, threadID, forkedKey)
+
+	// Later reply in the same thread must route to the forked key, NOT the
+	// base (which could be busy handling a different thread's work).
+	result := r.Route(baseKey, threadID, sm)
+	assert.Equal(t, forkedKey, result.EffectiveKey, "reply in registered thread must route to injected session")
+
+	// Release the forked session → affinity cleared.
+	r.ReleaseSession(forkedKey)
+	// After release, a fresh route should not return the stale forked key.
+	result2 := r.Route(baseKey, threadID, sm)
+	assert.NotEqual(t, forkedKey, result2.EffectiveKey, "affinity should clear after ReleaseSession")
+}
+
+// Without registration, a reply on a brand-new thread context-switches into
+// the base session (when base is idle). Combined with the test above, this
+// proves registration is what prevents the misroute.
+func TestThreadRouter_WithoutRegister_FallsThroughToBase(t *testing.T) {
+	r := NewThreadRouter(3, false)
+	sm := newTestSessionManager()
+
+	baseKey := "slack:C1"
+	result := r.Route(baseKey, "ts-unregistered", sm)
+	assert.Equal(t, baseKey, result.EffectiveKey, "without registration, idle-base fallthrough applies")
+}
