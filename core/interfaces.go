@@ -116,8 +116,8 @@ Environment variables CC_PROJECT and CC_SESSION_KEY are already set, so the rela
 ### Emoji reactions
 To add or remove an emoji reaction on a Slack message, use:
 
-  cc-connect react --emoji white_check_mark --channel C0AL12WCNBG --ts 1775870955.961349
-  cc-connect unreact --emoji white_check_mark --channel C0AL12WCNBG --ts 1775870955.961349
+  cc-connect react --emoji white_check_mark --channel C0123456789 --ts 1234567890.123456
+  cc-connect unreact --emoji white_check_mark --channel C0123456789 --ts 1234567890.123456
 
 --channel and --ts are required. --emoji is the Slack short name without colons.
 If the Slack message context provides channel_id and thread_ts, those can be used directly.

@@ -132,14 +132,14 @@ func printReactUsage(remove bool) {
 
 Options:
   -e, --emoji <name>       Emoji short name without colons (e.g. white_check_mark)
-  -c, --channel <id>       Slack channel ID (e.g. C0AL12WCNBG)
-  -t, --ts <timestamp>     Message timestamp (e.g. 1775870955.961349)
+  -c, --channel <id>       Slack channel ID (e.g. C0123456789)
+  -t, --ts <timestamp>     Message timestamp (e.g. 1234567890.123456)
   -p, --project <name>     Target project (optional if only one project)
       --data-dir <path>    Data directory (default: ~/.cc-connect)
   -h, --help               Show this help
 
 Examples:
-  cc-connect %s --emoji white_check_mark --channel C0AL12WCNBG --ts 1775870955.961349
-  cc-connect %s --emoji eyes --channel C0AL12WCNBG --ts 1775870955.961349
+  cc-connect %s --emoji white_check_mark --channel C0123456789 --ts 1234567890.123456
+  cc-connect %s --emoji eyes --channel C0123456789 --ts 1234567890.123456
 `, cmd, verb, cmd, cmd)
 }
