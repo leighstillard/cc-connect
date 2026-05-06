@@ -181,7 +181,8 @@ func (c *apiClient) sendMessage(ctx context.Context, msg *sendMessageReq) error 
 	}
 	if resp.Ret != 0 {
 		slog.Warn("weixin: sendMessage declined by API",
-			"ret", resp.Ret, "errcode", resp.Errcode, "errmsg", resp.Errmsg)
+			"ret", resp.Ret, "errcode", resp.Errcode, "errmsg", resp.Errmsg,
+			"content_len", len(payload))
 		return fmt.Errorf("weixin: sendMessage: ret=%d errcode=%d errmsg=%s",
 			resp.Ret, resp.Errcode, resp.Errmsg)
 	}
@@ -208,6 +209,45 @@ func (c *apiClient) getUploadURL(ctx context.Context, req getUploadURLRequest) (
 		return nil, fmt.Errorf("weixin: getUploadUrl: empty upload_param and upload_full_url in %s", truncateForLog(raw, 512))
 	}
 	return &out, nil
+}
+
+func (c *apiClient) getConfig(ctx context.Context, userID, contextToken string) (*getConfigResp, error) {
+	req := getConfigReq{
+		UserID:       userID,
+		ContextToken: contextToken,
+		BaseInfo:     baseInfo{ChannelVersion: channelVersion},
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.post(ctx, "ilink/bot/getconfig", payload, 0, "getConfig")
+	if err != nil {
+		return nil, err
+	}
+	var out getConfigResp
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("weixin: getConfig json: %w", err)
+	}
+	if out.Ret != 0 || out.Errcode != 0 {
+		return nil, fmt.Errorf("weixin: getConfig ret=%d errcode=%d errmsg=%s", out.Ret, out.Errcode, out.Errmsg)
+	}
+	return &out, nil
+}
+
+func (c *apiClient) sendTyping(ctx context.Context, userID, typingTicket string, status int) error {
+	req := sendTypingReq{
+		IlinkUserID:  userID,
+		TypingTicket: typingTicket,
+		Status:       status,
+		BaseInfo:     baseInfo{ChannelVersion: channelVersion},
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	_, err = c.post(ctx, "ilink/bot/sendtyping", payload, 0, "sendTyping")
+	return err
 }
 
 func (c *apiClient) sendText(ctx context.Context, to, text, contextToken, clientID string) error {

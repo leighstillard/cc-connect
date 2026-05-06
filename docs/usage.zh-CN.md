@@ -9,6 +9,7 @@ cc-connect 完整功能使用指南。
 - [API Provider 管理](#api-provider-管理)
 - [模型选择](#模型选择)
 - [工作目录切换（`/dir`、`/cd`）](#工作目录切换dircd)
+- [引用查看（`/show`）](#引用查看show)
 - [飞书配置 CLI](#飞书配置-cli)
 - [微信个人号配置 CLI](#微信个人号配置-cli)
 - [Claude Code Router 集成](#claude-code-router-集成)
@@ -40,6 +41,7 @@ cc-connect 完整功能使用指南。
 | `/provider [...]` | 管理 API Provider |
 | `/model [switch <alias>]` | 列出可用模型或按别名切换 |
 | `/dir [路径]` | 查看或切换 Agent 工作目录 |
+| `/show <引用>` | 按引用查看文件、目录或代码片段 |
 | `/allow <工具名>` | 预授权工具 |
 | `/reasoning [等级]` | 查看或切换推理强度（Codex）|
 | `/mode [名称]` | 查看或切换权限模式 |
@@ -57,6 +59,10 @@ reset_on_idle_mins = 60
 ```
 
 开启后，如果用户长时间未发消息，下一条普通消息会自动进入一个新的会话；旧会话仍会保留在 `/list` 中，不会被删除。
+
+### 切换模型时保留历史
+
+`/model` 切换模型时保留当前会话——agent 会在新模型下继续对话（不额外消耗 token）。注意模型切换作用于共享的 agent 实例——如果多个平台使用同一个 project，模型变更会影响所有平台。
 
 ---
 
@@ -268,6 +274,150 @@ alias = "spark"
 /dir ../another-repo
 /dir 2
 /dir -
+```
+
+---
+
+## 本地引用展示配置（`[projects.references]`）
+
+可选启用对 Agent 输出中的本地文件 / 目录 / 代码位置引用进行标准化与重渲染，提升在 IM 平台中的可读性。
+
+这是一个 **opt-in** 功能：
+
+- 未配置 `[projects.references]` 时，现有行为保持不变
+- 只有命中 `normalize_agents` 和 `render_platforms` 时，才会启用
+
+### 推荐配置
+
+```toml
+[projects.references]
+normalize_agents = ["all"]
+render_platforms = ["all"]
+display_path = "relative"
+marker_style = "emoji"
+enclosure_style = "code"
+```
+
+### 字段说明
+
+- `normalize_agents`
+  - 控制哪些 Agent 输出参与这套引用处理
+  - 当前初始支持：`codex`、`claudecode`、`all`
+
+- `render_platforms`
+  - 控制在哪些平台发送前应用展示重写
+  - 当前初始支持：`feishu`、`weixin`、`all`
+
+- `display_path`
+  - 控制路径主体的显示层级
+  - 可选值：`absolute`、`relative`、`basename`、`dirname_basename`、`smart`
+
+- `marker_style`
+  - 控制前缀标记样式
+  - 可选值：`none`、`ascii`、`emoji`
+
+- `enclosure_style`
+  - 控制路径主体的包裹样式
+  - 可选值：`none`、`bracket`、`angle`、`fullwidth`、`code`
+
+### 支持的引用输入
+
+当前初始支持识别这些常见形式：
+
+- 绝对路径
+- 相对路径
+- 文件 / 目录引用
+- `path:line`
+- `path:line:col`
+- `path:start-end`
+- `path#L42`
+- Markdown 本地文件链接
+- Claude 风格的反引号绝对路径引用
+
+### 行为说明
+
+- 只处理 Agent 输出：
+  - thinking
+  - final response
+  - stream preview
+  - progress / card 中的 Agent 文本
+
+- 不处理：
+  - 系统消息
+  - `/workspace`、`/dir`、`/status` 等命令回复
+  - raw tool result
+
+- 网页链接会保持原样，不会被本地引用重写逻辑污染
+
+### 推荐默认值说明
+
+当前最推荐的组合是：
+
+- `display_path = "relative"`
+- `marker_style = "emoji"`
+- `enclosure_style = "code"`
+
+这样通常会得到类似：
+
+- `📄 ui/recovery_contact_form.tsx:11`
+- `📁 docs/spec.v1/`
+
+如果不希望使用 emoji，更推荐：
+
+- `display_path = "dirname_basename"`
+- `marker_style = "ascii"`
+- `enclosure_style = "code"`
+
+---
+
+## 引用查看（`/show`）
+
+可直接基于一个文件 / 目录 / 代码位置引用查看内容，而不必手写 `/shell sed ...`。
+
+### 聊天命令
+
+```text
+/show <路径>                  查看文件前 80 行
+/show <路径:行号>             查看该行附近上下文
+/show <路径:起止行>           查看指定 range
+/show <目录路径/>             查看一级目录列表
+```
+
+支持的输入形式包括：
+
+- 绝对路径
+- 相对路径（相对当前 Agent 工作目录）
+- `path:line`
+- `path:line:col`
+- `path:start-end`
+- `path#L42`
+- Markdown 本地文件链接，如：
+  - `[file.ts](/abs/path/file.ts#L42)`
+
+### 行为说明
+
+- 文件，无位置：
+  - 默认显示文件前 80 行
+- `path:line` / `path#L42`：
+  - 默认显示该位置附近上下文
+- `path:start-end`：
+  - 默认显示该 range
+- 目录：
+  - 默认显示一级目录内容
+
+说明：
+
+- `/show` 只解析“纯引用文本”，不解析前端展示层包装后的 `📄 ...` / `[FILE] ...` 这类样式
+- `/show` 属于本地文件系统查看命令，与 `/shell`、`/dir` 类似，默认受 `admin_from` 权限控制
+- 执行 Shell 命令支持 `!` 快捷前缀：`!ls -la` 等同于 `/shell ls -la`，`! --timeout 300 npm install` 可指定超时时间
+
+示例：
+
+```text
+/show ui/recovery_contact_form.tsx
+/show svc/recovery_session_reconciler.go:12
+/show svc/recovery_session_reconciler_test.go:8-17
+/show docs/spec.v1/
 ```
 
 ---
@@ -536,6 +686,7 @@ cc-connect send --file /absolute/path/to/report.pdf --image /absolute/path/to/ch
 ```bash
 cc-connect cron add --cron "0 6 * * *" --prompt "总结 GitHub trending" --desc "每日趋势"
 cc-connect cron list
+cc-connect cron edit <job-id> <field> <value>   # 可改 cron_expr / prompt / enabled / mute / timeout_mins 等
 cc-connect cron del <job-id>
 ```
 
