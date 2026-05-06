@@ -33,6 +33,10 @@ const (
 	weixinSendRetryDelay = 500 * time.Millisecond
 	// weixinChunkSendDelay is the delay between sending message chunks to avoid rate limiting.
 	weixinChunkSendDelay = 100 * time.Millisecond
+	// typingTicketTTL is how long a cached typing ticket remains valid.
+	typingTicketTTL = 10 * time.Minute
+	// typingRepeatInterval is how often to resend the typing status to keep it alive.
+	typingRepeatInterval = 5 * time.Second
 )
 
 type replyContext struct {
@@ -74,6 +78,14 @@ type Platform struct {
 	tokensMu   sync.RWMutex
 	tokens     map[string]string
 	tokensPath string
+
+	typingMu      sync.RWMutex
+	typingTickets map[string]typingTicketEntry // peerUserID → cached ticket
+}
+
+type typingTicketEntry struct {
+	ticket    string
+	fetchedAt time.Time
 }
 
 func sanitizePathSegment(s string) string {
@@ -160,8 +172,9 @@ func New(opts map[string]any) (core.Platform, error) {
 		accountLabel:  accountLabel,
 		httpClient:    httpClient,
 		cdnHttpClient: cdnHttpClient,
-		tokens:       make(map[string]string),
-		dedup:        make(map[string]time.Time),
+		tokens:        make(map[string]string),
+		dedup:         make(map[string]time.Time),
+		typingTickets: make(map[string]typingTicketEntry),
 	}
 	p.api = newAPIClient(baseURL, token, routeTag, httpClient)
 
@@ -421,6 +434,7 @@ func (p *Platform) dispatchInbound(ctx context.Context, m *weixinMessage, h core
 
 	if tok := strings.TrimSpace(m.ContextToken); tok != "" {
 		p.setContextToken(from, tok)
+		p.refreshTypingTicket(ctx, from, tok)
 	}
 
 	body := bodyFromItemList(m.ItemList)
@@ -489,6 +503,101 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	return p.sendChunks(ctx, replyCtx, content)
 }
 
+// StartTyping sends a typing indicator to the peer and repeats every few seconds
+// until the returned stop function is called. Implements core.TypingIndicator.
+func (p *Platform) StartTyping(ctx context.Context, rctx any) (stop func()) {
+	rc, ok := rctx.(*replyContext)
+	if !ok || rc == nil {
+		return func() {}
+	}
+	peerID := rc.peerUserID
+	contextToken := rc.contextToken
+	if strings.TrimSpace(contextToken) == "" {
+		contextToken = p.getContextToken(peerID)
+	}
+
+	ticket := p.getTypingTicket(ctx, peerID, contextToken)
+	if ticket == "" {
+		return func() {}
+	}
+
+	if err := p.api.sendTyping(ctx, peerID, ticket, typingStatusStart); err != nil {
+		slog.Debug("weixin: initial typing start failed", "peer", peerID, "error", err)
+		return func() {}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(typingRepeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				// Best-effort stop; use background context since ctx may already be cancelled.
+				stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if err := p.api.sendTyping(stopCtx, peerID, ticket, typingStatusStop); err != nil {
+					slog.Debug("weixin: typing stop failed", "peer", peerID, "error", err)
+				}
+				cancel()
+				return
+			case <-ctx.Done():
+				stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if err := p.api.sendTyping(stopCtx, peerID, ticket, typingStatusStop); err != nil {
+					slog.Debug("weixin: typing stop failed (ctx cancelled)", "peer", peerID, "error", err)
+				}
+				cancel()
+				return
+			case <-ticker.C:
+				if err := p.api.sendTyping(ctx, peerID, ticket, typingStatusStart); err != nil {
+					slog.Debug("weixin: typing repeat failed", "peer", peerID, "error", err)
+					bestEffortCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					_ = p.api.sendTyping(bestEffortCtx, peerID, ticket, typingStatusStop)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	return func() { close(done) }
+}
+
+// getTypingTicket returns a cached typing ticket for the peer, fetching one
+// from the getconfig API if the cache is empty or expired.
+func (p *Platform) getTypingTicket(ctx context.Context, peerID, contextToken string) string {
+	p.typingMu.RLock()
+	entry, ok := p.typingTickets[peerID]
+	p.typingMu.RUnlock()
+	if ok && time.Since(entry.fetchedAt) < typingTicketTTL {
+		return entry.ticket
+	}
+
+	resp, err := p.api.getConfig(ctx, peerID, contextToken)
+	if err != nil {
+		slog.Debug("weixin: getConfig for typing ticket failed", "peer", peerID, "error", err)
+		return ""
+	}
+	ticket := strings.TrimSpace(resp.TypingTicket)
+	if ticket == "" {
+		return ""
+	}
+
+	p.typingMu.Lock()
+	p.typingTickets[peerID] = typingTicketEntry{ticket: ticket, fetchedAt: time.Now()}
+	p.typingMu.Unlock()
+	return ticket
+}
+
+// refreshTypingTicket proactively fetches and caches a typing ticket when a
+// message is received, so that StartTyping can use it without an extra round-trip.
+func (p *Platform) refreshTypingTicket(ctx context.Context, peerID, contextToken string) {
+	go func() {
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		p.getTypingTicket(fetchCtx, peerID, contextToken)
+	}()
+}
+
 func (p *Platform) sendChunks(ctx context.Context, replyCtx any, content string) error {
 	rc, ok := replyCtx.(*replyContext)
 	if !ok || rc == nil {
@@ -504,6 +613,7 @@ func (p *Platform) sendChunks(ctx context.Context, replyCtx any, content string)
 		return nil
 	}
 	chunks := splitUTF8(content, maxWeixinChunk)
+	total := len(chunks)
 	for i, chunk := range chunks {
 		// Add delay between chunks to avoid rate limiting (except for first chunk)
 		if i > 0 {
@@ -514,9 +624,20 @@ func (p *Platform) sendChunks(ctx context.Context, replyCtx any, content string)
 			}
 		}
 		// Retry sendText with context_token refresh on failure
-		err := p.sendChunkWithRetry(ctx, rc, chunk)
+		err := p.sendChunkWithRetry(ctx, rc, chunk, i+1, total)
 		if err != nil {
-			return fmt.Errorf("weixin: send: %w", err)
+			slog.Error("weixin: chunk send failed, message incomplete",
+				"peer", rc.peerUserID,
+				"failed_chunk", fmt.Sprintf("%d/%d", i+1, total),
+				"error", err)
+			// Notify user that message delivery was incomplete.
+			// Use a short message that is unlikely to fail itself.
+			notice := "⚠️ 消息发送不完整，请在终端查看完整结果。"
+			noticeID := "cc-" + randomHex(6)
+			if nerr := p.api.sendText(ctx, rc.peerUserID, notice, rc.contextToken, noticeID); nerr != nil {
+				slog.Warn("weixin: failed to send incomplete-delivery notice", "peer", rc.peerUserID, "error", nerr)
+			}
+			return fmt.Errorf("weixin: send chunk %d/%d: %w", i+1, total, err)
 		}
 	}
 	return nil
@@ -524,7 +645,8 @@ func (p *Platform) sendChunks(ctx context.Context, replyCtx any, content string)
 
 // sendChunkWithRetry sends a single chunk with retry mechanism.
 // When sendMessage returns ret=-2, it retries with a fresh context_token.
-func (p *Platform) sendChunkWithRetry(ctx context.Context, rc *replyContext, chunk string) error {
+// chunkIdx and totalChunks are 1-based indices used for logging context.
+func (p *Platform) sendChunkWithRetry(ctx context.Context, rc *replyContext, chunk string, chunkIdx, totalChunks int) error {
 	var lastErr error
 	for attempt := 0; attempt < weixinSendMaxRetries; attempt++ {
 		clientID := "cc-" + randomHex(6)
@@ -535,8 +657,15 @@ func (p *Platform) sendChunkWithRetry(ctx context.Context, rc *replyContext, chu
 		lastErr = err
 		// Check if error is ret=-2 (API declined) - retry with fresh token
 		if strings.Contains(err.Error(), "ret=-2") {
+			preview := []rune(chunk)
+			if len(preview) > 50 {
+				preview = preview[:50]
+			}
 			slog.Warn("weixin: sendMessage ret=-2, retrying with fresh context_token",
-				"attempt", attempt+1, "peer", rc.peerUserID, "chunk_len", len(chunk))
+				"attempt", attempt+1, "peer", rc.peerUserID,
+				"chunk", fmt.Sprintf("%d/%d", chunkIdx, totalChunks),
+				"chunk_runes", utf8.RuneCountInString(chunk),
+				"preview", string(preview))
 			// Add delay before retry
 			select {
 			case <-ctx.Done():
@@ -598,4 +727,5 @@ var (
 	_ core.FormattingInstructionProvider = (*Platform)(nil)
 	_ core.ImageSender                   = (*Platform)(nil)
 	_ core.FileSender                    = (*Platform)(nil)
+	_ core.TypingIndicator               = (*Platform)(nil)
 )
