@@ -177,6 +177,8 @@ type TypingIndicator interface {
 // a push notification (e.g. Feishu card edits don't trigger pushes).
 type TypingIndicatorDone interface {
 	AddDoneReaction(replyCtx any)
+}
+
 // Reactor is an optional interface for platforms that support adding and
 // removing emoji reactions on messages.
 type Reactor interface {

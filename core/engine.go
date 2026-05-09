@@ -2926,7 +2926,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 		}
 		if err != nil {
 			slog.Error("failed to start session after fork failure", "error", err)
-			state = &interactiveState{platform: p, replyCtx: replyCtx, quiet: quietMode}
+			state = &interactiveState{platform: p, replyCtx: replyCtx}
 			e.interactiveStates[sessionKey] = state
 			return state
 		}
@@ -2942,7 +2942,6 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 			agentSession: agentSession,
 			platform:     p,
 			replyCtx:     replyCtx,
-			quiet:        quietMode,
 		}
 		e.interactiveStates[sessionKey] = state
 		slog.Info("session spawned (fork)", "session_key", sessionKey, "fork_source", forkID, "elapsed", startElapsed)
@@ -5228,6 +5227,7 @@ func filterOwnedSessions(sessions []AgentSessionInfo, known map[string]struct{})
 		}
 	}
 	return filtered
+}
 
 // resumePickerLimit is the maximum number of prior workspace sessions
 // shown to the user by /resume. Enough to cover a day or two of work
@@ -13053,7 +13053,7 @@ func (e *Engine) sendTTSReply(p Platform, replyCtx any, text string) {
 // HandleRelay processes a relay message synchronously: starts or resumes a
 // dedicated relay session, sends the message to the agent, and blocks until
 // the complete response is collected (or the relay context times out).
-func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, message string) (string, error) {
+func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, wsChannelKey, message string) (string, error) {
 	relaySessionKey := "relay:" + fromProject + ":" + chatID
 	session := e.sessions.GetOrCreateActive(relaySessionKey)
 
@@ -13074,21 +13074,7 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, message s
 	// Use the engine context (not the relay timeout context) so that the
 	// agent process is not killed when the relay deadline fires. The relay
 	// timeout only controls how long we *wait* for the response.
-	agentSession, err := e.agent.StartSession(e.ctx, session.GetAgentSessionID())
-	if err != nil {
-		// Resume failed — fall back to a fresh session so the relay is not
-		// permanently broken by a corrupted/stale session ID.
-		if session.GetAgentSessionID() != "" {
-			slog.Warn("relay: session resume failed, trying fresh session",
-				"relay_key", relaySessionKey, "error", err)
-			session.SetAgentSessionID("", e.agent.Name())
-			e.sessions.Save()
-			agentSession, err = e.agent.StartSession(e.ctx, "")
-		}
-		if err != nil {
-			return "", fmt.Errorf("start relay session: %w", err)
-		}
-	agentSession, err := e.startRelaySession(ctx, agent, session, sessions, relaySessionKey, message)
+	agentSession, err := e.startRelaySession(ctx, e.agent, session, e.sessions, relaySessionKey, message)
 	if err != nil {
 		return "", err
 	}
@@ -13103,15 +13089,10 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, message s
 		}
 	}
 
-	if err := agentSession.Send(message, nil, nil); err != nil {
-		agentSession.Close()
-		return "", fmt.Errorf("send relay message: %w", err)
-	}
-
 	// sawNewContent tracks whether Claude has started processing our message
-	// (emitted at least one text or tool event). A stale EventResult from
-	// session resume that slips past the drain is skipped when this is false.
-	sawNewContent := false
+	// (emitted at least one text or tool event). Since startRelaySession
+	// already handles stale EventResult detection for resumed sessions,
+	// any event reaching this loop is genuine.
 	var textParts []string
 	for event := range agentSession.Events() {
 		switch event.Type {
@@ -13141,22 +13122,6 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, message s
 				textParts = append(textParts, fmt.Sprintf(e.i18n.T(MsgToolResult), tn, out)+"\n\n")
 			}
 		case EventResult:
-			if !sawNewContent {
-				// Stale result from session resume -- save the session ID
-				// but don't treat it as this turn's response.
-				if currentID := agentSession.CurrentSessionID(); currentID != "" {
-					if session.CompareAndSetAgentSessionID(currentID, e.agent.Name()) {
-						pendingName := session.GetName()
-						if pendingName != "" && pendingName != "session" && pendingName != "default" {
-							e.sessions.SetSessionName(currentID, pendingName)
-						}
-					}
-					e.sessions.Save()
-				}
-				slog.Debug("relay: skipped stale result event from resumed session",
-					"from", fromProject, "to", e.name, "session_id", event.SessionID)
-				continue
-			}
 			// Use agentSession.CurrentSessionID() for the same reason as above.
 			if currentID := agentSession.CurrentSessionID(); currentID != "" {
 				if session.CompareAndSetAgentSessionID(currentID, e.agent.Name()) {
@@ -13166,9 +13131,6 @@ func (e *Engine) HandleRelay(ctx context.Context, fromProject, chatID, message s
 					}
 				}
 				e.sessions.Save()
-			if event.SessionID != "" {
-				session.SetAgentSessionID(event.SessionID, agent.Name())
-				sessions.Save()
 			}
 			resp := event.Content
 			if resp == "" && len(textParts) > 0 {
